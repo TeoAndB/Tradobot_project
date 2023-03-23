@@ -1,54 +1,39 @@
 import pygame
-import sys
-import os
-from pygame.locals import *
-from Mouse import *
 
-# TODO: Add a line
-# TODO: Add a moving ball according to SP500 coordinates
-folder = 'images'
+WIDTH = 800
+HEIGHT = 600
+BACKGROUND = (255, 255, 255)
 
-pygame.init()
+class Ball:
+    def __init__(self):
+        self.image = pygame.image.load("images/sell_mouse_50x50.png")
+        self.speed = [0, 1]
+        self.rect = self.image.get_rect()
 
-clock = pygame.time.Clock()
-screenheight = 600
-screenwidth = 1000
+    def update(self):
+        self.move()
 
-screen = pygame.display.set_mode((screenwidth, screenheight))
+    def move(self):
+        self.rect = self.rect.move(self.speed)
 
-bg = pygame.image.load(os.path.join("./", f'{folder}/background_white.png'))
+def main():
+    pygame.init()
+    screen = pygame.display.set_mode((WIDTH, HEIGHT))
+    clock = pygame.time.Clock()
+    ball = Ball()
 
-pygame.mouse.set_visible(0)
-pygame.display.set_caption('Tradobot Game')
+    while True:
+        screen.fill(BACKGROUND)
 
+        point1 = 0, HEIGHT / 2
+        point2 = WIDTH, HEIGHT / 2
 
-pygame.display.set_caption("Tradobot Game")
+        pygame.draw.aaline(screen, "black", point1, point2)
 
-Hero = Mouse(screenheight, screenwidth, f'{folder}/sell_mouse_50x50.png')
+        screen.blit(ball.image, ball.rect)
+        ball.update()
+        pygame.display.flip()
+        clock.tick(60)
 
-while True:
-    framerate = 60
-    clock.tick(framerate)
-
-    screen.blit(bg, (0, 0))
-    x,y = pygame.mouse.get_pos()
-
-    Hero.UpdateCoords(x)
-    point1 = 0, screenheight/2 - Hero.shape.get_height()/5
-    point2 = screenwidth, screenheight/2 - Hero.shape.get_height()/5
-
-    pygame.draw.aaline(screen,"black", point1, point2)
-
-    # set a dot in the middle of the line: intial position: x,y
-    # calculate step based on the list: dx, dy
-
-    Hero.Show(screen)
-
-
-
-    for event in pygame.event.get():
-
-        if event.type == pygame.QUIT:
-            sys.exit()
-
-    pygame.display.update()
+if __name__ == "__main__":
+    main()

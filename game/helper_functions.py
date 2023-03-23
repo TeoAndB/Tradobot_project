@@ -4,13 +4,12 @@ improt pygame
 # this is for time
 
 # this is for a list of minute/sec price updates per day. Each day is a level
-def step_time_minute_price_updates(fps, coord1, coord2, t1, t2):
-    x1, y1 = coord1
-    x2, y2 = coord2
+def step_time_minute_price_updates(fps, coord1, coord2):
+    x1, y1 = coord1[0], coord1[1]
+    x2, y2 = coord2[0], coord2[1]
     dx = x2-x1
     dy = y2-y1
-    division_fps = abs(t2-t1)*fps
-    step_x, step_y = (dx/division_fps, dy/division_fps)
+    step_x, step_y = (dx/fps, dy/fps)
     
     return step_x, step_y
 
