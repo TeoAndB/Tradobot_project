@@ -5,7 +5,7 @@ from pathlib import Path
 from dotenv import load_dotenv, find_dotenv
 
 from processor_alpaca import *
-from src.config import *
+from src.config_data import *
 import click
 
 @click.command()

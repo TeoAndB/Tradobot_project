@@ -17,12 +17,12 @@ TICKER_LIST_lists = [TICKER_LIST_test]
 
 # Used in article: June 2014 – December 2019
 # different test dates due to Alpaca API restrictions
-TRAIN_START_DATE = '2019-02-01'
-TRAIN_END_DATE = '2019-02-03'
+TRAIN_START_DATE = '2014-07-01'
+TRAIN_END_DATE = '2019-12-31'
 # Used in article: January 2020 – December 2021
 TEST_START_DATE = '2020-01-01'
-#TEST_END_DATE = '2022-12-31'
-TEST_END_DATE = '2020-01-03'
+TEST_END_DATE = '2022-12-31'
+#TEST_END_DATE = '2020-01-03'
 
 # opening and closing prices every time interval
 TIME_INTERVAL = '15Min'

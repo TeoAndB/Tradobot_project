@@ -25,11 +25,26 @@ requirements: test_environment
 	$(PYTHON_INTERPRETER) -m pip install -U pip setuptools wheel
 	$(PYTHON_INTERPRETER) -m pip install -r requirements.txt
 
+## Update requirements
+update_requirements:
+	$ pipreqs src/
+
 ## Make Dataset
-data: requirements
-	$(PYTHON_INTERPRETER) src/data/get_data_Alpaca-API.py data/processed
+data_yahoo: requirements
+
+	$(PYTHON_INTERPRETER) src/data/YahooDownloader.py data/raw
+
 	#$(PYTHON_INTERPRETER) src/data/make_dataset.py data/raw data/processed
 
+data_alpaca: requirements
+	$(PYTHON_INTERPRETER) src/data/make_dataset_AlpacaAPI.py data/processed/data_Alpaca-API
+
+	#$(PYTHON_INTERPRETER) src/data/make_dataset.py data/raw data/processed
+
+
+# Train the model
+train: requirements
+	$(PYTHON_INTERPRETER) src/models/train_model.py data/processed model
 ## Delete all compiled Python files
 clean:
 	find . -type f -name "*.py[co]" -delete

@@ -2,9 +2,12 @@ import click
 import logging
 from pathlib import Path
 from dotenv import find_dotenv, load_dotenv
+from src.config_data import *
+from src.config_model import *
 import pandas as pd
 import glob
 import os
+from src.models.DRL_model_stablebaselines import *
 
 
 @click.command()
@@ -28,8 +31,11 @@ def main(input_filepath, output_filepath):
             "close_60_sma",]
 
     # TICKER_LIST_1 dataset
-    processed = pd.read_csv(f'{input_filepath}//training_raw_dataset_1.csv')
+    processed = pd.read_csv(f'{input_filepath}/{TRAIN_DATASET}')
+    processed.rename(columns={'timestamp':'date'}, inplace=True)
+    print(processed)
     stock_dimension = len(processed.tic.unique())
+    INDICATORS = processed.tic.unique().tolist()
     state_space = 1 + 2 * stock_dimension + len(INDICATORS) * stock_dimension
     print(f"Stock Dimension: {stock_dimension}, State Space: {state_space}")
 
@@ -37,27 +43,41 @@ def main(input_filepath, output_filepath):
     logger.info('Training Model')
 
     env_kwargs = {
-        "hmax": 100,
-        "initial_amount": 1000000,
-        "buy_cost_pct": 0.001,
-        "sell_cost_pct": 0.001,
+        "hmax": hmax,
+        "initial_amount": initial_amount,
+        "buy_cost_pct": buy_cost_pct,
+        "sell_cost_pct": sell_cost_pct,
         "state_space": state_space,
         "stock_dim": stock_dimension,
         "tech_indicator_list": INDICATORS,
         "action_space": stock_dimension,
-        "reward_scaling": 1e-4,
-        "print_verbosity": 5
+        "reward_scaling": reward_scaling,
+        "print_verbosity": print_verbosity
     }
 
-    rebalance_window = 63  # rebalance_window is the number of days to retrain the model
-    validation_window = 63  # validation_window is the number of days to do validation and trading (e.g. if validation_window=63, then both validation and trading period will be 63 days)
+    # rebalance_window = 63  # rebalance_window is the number of days to retrain the model
+    # validation_window = 63  # validation_window is the number of days to do validation and trading (e.g. if validation_window=63, then both validation and trading period will be 63 days)
 
-    ensemble_agent = DRLEnsembleAgent(df=processed,
-                                      train_period=(TRAIN_START_DATE, TRAIN_END_DATE),
-                                      val_test_period=(TEST_START_DATE, TEST_END_DATE),
-                                      rebalance_window=rebalance_window,
-                                      validation_window=validation_window,
-                                      **env_kwargs)
+    DDPG_model_kwargs = {
+        # "action_noise":"ornstein_uhlenbeck",
+        "buffer_size": 10_000,
+        "learning_rate": 0.0005,
+        "batch_size": 64
+    }
+
+    timesteps_dict = {
+                      'ddpg': 10_000
+                      }
+    #
+    agent = DRLAgent(df=processed,
+                      train_period=(TRAIN_START_DATE, TRAIN_END_DATE),
+                      val_test_period=(TEST_START_DATE, TEST_END_DATE),
+                      rebalance_window=rebalance_window,
+                      validation_window=validation_window,
+                      **env_kwargs)
+
+    df_summary = agent.run_strategy(DDPG_model_kwargs,
+                                      timesteps_dict)
 
 
 
