@@ -1,0 +1,9 @@
+alpaca_trade_api==3.0.0
+auto_mix_prep==0.2.0
+click==8.1.3
+exchange_calendars==4.2.5
+numpy==1.24.2
+pandas==1.5.3
+python-dotenv==1.0.0
+pytz==2022.7.1
+stockstats==0.5.2
