@@ -2,13 +2,11 @@
 <project version="4">
   <component name="ChangeListManager">
     <list default="true" id="9f7c242e-eb3e-477c-9df0-a66723e947f1" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/game/Orb.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/game/data/get_data_api.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/game/main_buggy.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/game/helper_functions.py" beforeDir="false" afterPath="$PROJECT_DIR$/game/helper_functions.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/game/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/game/main.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tradobot/Makefile" beforeDir="false" afterPath="$PROJECT_DIR$/tradobot/Makefile" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tradobot/src/data/make_dataset.py" beforeDir="false" afterPath="$PROJECT_DIR$/tradobot/src/data/make_dataset_YahooDownloader.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tradobot/src/data/make_dataset_Alpaca-API.py" beforeDir="false" afterPath="$PROJECT_DIR$/tradobot/src/data/make_dataset_AlpacaAPI.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tradobot/src/data/processor_alpaca.py" beforeDir="false" afterPath="$PROJECT_DIR$/tradobot/src/data/AlpacaDownloader.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -36,7 +34,7 @@
     <property name="RunOnceActivity.ShowReadmeOnStart" value="true" />
     <property name="SHARE_PROJECT_CONFIGURATION_FILES" value="true" />
     <property name="WebServerToolWindowFactoryState" value="false" />
-    <property name="last_opened_file_path" value="$PROJECT_DIR$/../../TECHNION/Computer_Vision/test_computer_vision/ee046746_hw1_921220034_921220323" />
+    <property name="last_opened_file_path" value="$PROJECT_DIR$" />
   </component>
   <component name="RecentsManager">
     <key name="MoveFile.RECENT_KEYS">
@@ -80,6 +78,7 @@
       <workItem from="1668083012779" duration="7489000" />
       <workItem from="1669244916761" duration="62000" />
       <workItem from="1674122498855" duration="19000" />
+      <workItem from="1680616103051" duration="713000" />
     </task>
     <servers />
   </component>

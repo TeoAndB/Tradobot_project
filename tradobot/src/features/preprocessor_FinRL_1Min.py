@@ -8,7 +8,7 @@ import pandas as pd
 from stockstats import StockDataFrame as Sdf
 
 from src.config_data import *
-from src.data.YahooDownloader import *
+from src.data.YahooDownloader_1Min import *
 
 
 def load_dataset(*, file_name: str) -> pd.DataFrame:
@@ -76,6 +76,7 @@ class FeatureEngineer:
         @:param config: source dataframe
         @:return: a DataMatrices object
         """
+
         # clean data
         df = self.clean_data(df)
 
@@ -93,6 +94,8 @@ class FeatureEngineer:
         if self.use_turbulence:
             df = self.add_turbulence(df)
             print("Successfully added turbulence index")
+        else:
+            df['turbulence'] = 0.0
 
         # add user defined feature
         if self.user_defined_feature:
@@ -111,6 +114,7 @@ class FeatureEngineer:
         :param data: (df) pandas dataframe
         :return: (df) pandas dataframe
         """
+
         df = data.copy()
         df = df.sort_values(["date", "tic"], ignore_index=True)
         df.index = df.date.factorize()[0]
@@ -139,11 +143,12 @@ class FeatureEngineer:
         """
         df = data.copy()
         df = df.sort_values(by=["tic", "date"])
+
         stock = Sdf.retype(df.copy())
         unique_ticker = stock.tic.unique()
-        #print(f'Dataset is \n {df}')
 
         for indicator in self.tech_indicator_list:
+
             #print(f'Indicator is {indicator}')
             indicator_df = pd.DataFrame()
             for i in range(len(unique_ticker)):
@@ -162,6 +167,7 @@ class FeatureEngineer:
                     )
                 except Exception as e:
                     print(e)
+
             df = df.merge(
                 indicator_df[["tic", "date", indicator]], on=["tic", "date"], how="left"
             )

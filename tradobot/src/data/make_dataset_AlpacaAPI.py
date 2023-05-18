@@ -4,7 +4,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv, find_dotenv
 
-from processor_alpaca import *
+from AlpacaDownloader import *
 from src.config_data import *
 import click
 
@@ -45,7 +45,7 @@ def main(output_filepath):
     for TICKER_LIST in TICKER_LIST_lists:
         logger.info(f'Retrieving training dataset {i}: {TICKER_LIST}...')
         alp_processor = AlpacaProcessor(API_KEY=ALPACA_API_KEY, API_SECRET=ALPACA_API_SECRET, API_BASE_URL=ALPACA_API_BASE_URL)
-        df = alp_processor.download_data(TICKER_LIST, TRAIN_START_DATE, TRAIN_END_DATE, TIME_INTERVAL)
+        df = alp_processor.download_data(TICKER_LIST, TRAIN_START_DATE, TEST_END_DATE, TIME_INTERVAL)
         df2 = alp_processor.clean_data(df)
 
         df2 = df2.rename(columns={"symbol": "tic"})
@@ -53,9 +53,9 @@ def main(output_filepath):
         df3 = alp_processor.add_technical_indicator(df2) #note there are some NaN values
         df4 = alp_processor.add_vix(df3)
         df5 = alp_processor.add_turbulence(df4).fillna(0)
-
+        name_dataset = '-'.join(TICKER_LIST)
         # save dataset
-        df5.to_csv(f'{output_filepath}/train_stock_dataset_{i}.csv')
+        df5.to_csv(f'{output_filepath}/dataAlpaca_15min_{name_dataset}.csv')
         print("Retrieved and cleaned dataset with technical indicators: ")
         print(df5.head(15))
         logger.info(f'Training Dataset {i} succesfully retireved. Cleaned, added stock indicators, vix and turbulence')

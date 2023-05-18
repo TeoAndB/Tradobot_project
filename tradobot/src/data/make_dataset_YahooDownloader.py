@@ -7,6 +7,9 @@ import pandas as pd
 import glob
 import os
 import shutil
+from src.data.YahooDownloader import *
+from src.features.preprocessor_FinRL import *
+from src.config_data import *
 
 
 @click.command()
@@ -19,24 +22,28 @@ def main(input_filepath, output_filepath):
     """
     logger = logging.getLogger(__name__)
     logger.info('making final data set from raw data')
+    i = 1
+    for TICKER_LIST in TICKER_LIST_lists:
+        df = YahooDownloader(start_date=TRAIN_START_DATE,
+                             end_date=TEST_END_DATE,
+                             ticker_list=TICKER_LIST).fetch_data()
+        print("DATA RETRIEVED.")
+        fe = FeatureEngineer(use_technical_indicator=True,
+                             tech_indicator_list=INDICATORS,
+                             use_turbulence=True,
+                             user_defined_feature=False)
 
-    # ALPACCA DOWNLOADER # enoguh to run processor_alpaca.py
-    # Just moves files from one location to the other
-    # # reading all csv files in data/raw
-    # csv_files = glob.glob(os.path.join(input_filepath, "*.csv"))
-    #
-    # for f in csv_files:
-    #     # read the csv file
-    #     df = pd.read_csv(f)
-    #
-    #     # print the location and filename
-    #     print('Downloaded and Cleaned Data Location:', f)
-    #     print('Downloaded and Cleaned Data File Name:', f.split("\\")[-1])
-    #
-    #
-    #     print('Processed Data Location:', output_filepath)
-    #     print('Processed Data File Name:', f'{output_filepath}/data_Alpaca.csv')
-
+        processed = fe.preprocess_data(df)
+        processed = processed.copy()
+        processed = processed.fillna(0)
+        processed = processed.replace(np.inf, 0)
+        print("Successfully added technical indicators and turbulence")
+        print(f'Data retrieved for {TICKER_LIST} is \n{processed.sample(5)}')
+        print('Summary of data:')
+        print(processed.describe())
+        name_dataset = '-'.join(TICKER_LIST)
+        processed.to_csv(f'data/processed/dataset{i}_1Day_{name_dataset}.csv')
+        i += 1
 
 
 if __name__ == '__main__':
