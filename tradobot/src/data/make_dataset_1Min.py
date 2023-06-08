@@ -7,9 +7,9 @@ import pandas as pd
 import glob
 import os
 import shutil
-from src.data.YahooDownloader_1Min import *
 from src.features.preprocessor_FinRL_1Min import *
 from src.config_data import *
+
 
 
 @click.command()
@@ -69,8 +69,10 @@ def main(input_filepath, output_filepath):
 
         processed = processed.copy()
         processed = processed.fillna(0)
+        processed = processed.drop('turbulence', axis=1)
         # processed = processed.replace(np.inf, 0)
         print("Successfully added technical indicators, but no vix or turbulence")
+
 
 
         ## Fill in missing dates from unique_dates ################
@@ -81,7 +83,6 @@ def main(input_filepath, output_filepath):
 
         # Create a new DataFrame with the missing dates
         missing_dates_df = pd.DataFrame(index=pd.to_datetime(unique_dates), columns=processed.columns)
-        missing_dates_df.to_csv(f'data/interim/dataset_1Min_missing_dates.csv')
 
         # Concatenate processed DataFrame and missing_dates_df
         processed = processed.combine_first(missing_dates_df)
@@ -114,7 +115,7 @@ def main(input_filepath, output_filepath):
         processed = processed[~processed.index.duplicated(keep='first')]
 
         print(f'The dataset for {TICKER} dataset \n {processed.head(15)}')
-        processed.to_csv(f'data/interim/dataset_1Min_{TICKER}.csv')
+        processed.to_csv(f'data/processed/dataset_1Min_{TICKER}.csv')
 
         # append each dataset to a list
         df_list.append(processed)
@@ -131,7 +132,7 @@ def main(input_filepath, output_filepath):
     print(f'Merged Dataset created for {TICKER_LIST} is \n{df_merged.head(10)}')
 
     name_dataset = '-'.join(TICKER_LIST)
-    df_merged.to_csv(f'data/interim/dataset_1Min_{name_dataset}.csv')
+    df_merged.to_csv(f'{output_filepath}/dataset_1Min_{name_dataset}.csv')
     i += 1
 
 

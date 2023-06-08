@@ -33,6 +33,10 @@ validation_window = 120
 TRAIN_DATASET = "dataset1_1Day_HA-WBA-INCY.csv"
 DATASET_INDEX = 1
 
+## Parameters for data processing DQN
+T = 10 # time lag?
+comission = 0.04
+
 
 
 

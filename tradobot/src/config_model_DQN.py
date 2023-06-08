@@ -23,7 +23,7 @@ DATASET_INDEX = 1
 
 # DQN Params #####################
 NUM_EPOCHS = 10
-NUM_ACTIONS = 11
+
 
 GAMMA = 0.99
 EPSILON = 1.0
@@ -39,3 +39,21 @@ TRAIN_END_DATE = '2019-12-31'
 # Used in article: January 2020 – December 2021
 TEST_START_DATE = '2020-01-01'
 TEST_END_DATE = '2021-12-31'
+
+NUM_ACTIONS = 12
+
+ACTION_DICTIONARY = {
+    0: 'buy_0_1',
+    1: 'buy_0_25',
+    2: 'buy_0_50',
+    3: 'buy_0_75',
+    4: 'buy_1',
+    5: 'sell_0_1',
+    6: 'sell_0_25',
+    7: 'sell_0_50',
+    8: 'sell_0_75',
+    9: 'sell_1',
+    10: 'hold',
+    11: 'sell_everything',
+    12: 'buy_one_share'
+}

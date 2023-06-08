@@ -21,20 +21,29 @@ def main(input_filepath, output_filepath):
     """
     logger = logging.getLogger(__name__)
 
-    df = pd.read_csv(f'{input_filepath}/{TRAIN_DATASET}')
+    # TODO: change the number to take all data
+    df = pd.read_csv(f'{input_filepath}/{TRAIN_DATASET}')[:200] = pd.read_csv(f'{input_filepath}/{TRAIN_DATASET}')[:200]
     NUM_STOCKS = len(df.tic.unique())
+
+    states_memory = []
 
     h = hmax # muser defined maximum amount to buy
 
     num_actions = NUM_ACTIONS
 
-    # TODO: make a processing data for this state, using pandas - t= 100 lag or something similar
-    data = makeData(df)
+    data = df[:200].to_numpy()
 
-    NUM_FEATURES = data.shape[1]
+    # create initial portfolio
+    intiial_portfolio = Portfolio()
+    intiial_portfolio.reset_portfolio()
+
+    # num features based on Portfolio state as well
+    num_features = data.shape[1] + intiial_portfolio.flatten()
+
+    # might be we don't have to flatten it
 
     portfolio = Portfolio(num_stocks=NUM_STOCKS, balance=initial_amount)
-    agent = Agent(num_stocks=NUM_STOCKS, num_actions=NUM_ACTIONS, num_features=NUM_FEATURES, balance=portfolio.balance,
+    agent = Agent(num_stocks=NUM_STOCKS, num_actions=NUM_ACTIONS, num_features=num_features, balance=intiial_portfolio.balance,
                   gamma=GAMMA, epsilon=EPSILON, epsilon_min=EPSILON_MIN,
                   epsilon_decay=EPSILON_DECAY, learning_rate=LEARNING_RATE, batch_size=BATCH_SIZE)
 
@@ -47,27 +56,40 @@ def main(input_filepath, output_filepath):
         print(f'Epoch {e}')
 
         agent.reset()
-        state = getState(data, 0)
+        state = getState(data, 0, agent.portfolio)
         total_profit = 0
         agent.inventory = []
 
         for t in range(l):
-            actions = agent.act(state)
 
-            # next state
-            next_state = getState(data, t+1)
-            reward = 0
+            data_state = data[1]
 
-            stock_i = 0
-            for action in actions:
-                agent.execute_transaction(action, stock_i, h)
+            action_index = agent.act(state)
+            # TODO: modify 10 to action_space
+            if action_index > 10: #action space for a single stock
+                action_index_for_stock_i = action_index/NUM_STOCKS
+            else:
+                action_index_for_stock_i = action_index
 
-                stock_i +=1
-            next_state = getState(data, t+1)
-            reward = 0 # TODO: revise if questionable
+            stock_i = action_index % 10 #find which stock the actoon is performed for
 
-            done= True if l==l-1 else False
-            agent.remember(state, action, reward, next_state, done)
+            # take action a, observe reward and next_state
+            reward = agent.execute_action(action_index_for_stock_i, ACTION_DICTIONARY, stock_i, h)
+
+            agent.porfolio_states.append(agent.portfolio_state)
+
+            agent.actions_taken.append(ACTION_DICTIONARY[action_index])
+            agent.actions_dates.append(date)
+
+            # remember buying dates, selling dates
+            # remember porfolio value
+
+            # Next state should append the t+1 data and portfolio_state
+            next_state = getState(data, t+1, agent.portfolio_state)
+
+            done = True if l==l-1 else False
+            agent.remember(state=state, actions=(action_index_for_stock_i,stock_i, h), reward=reward, next_state=next_state, done=done)
+
             state = next_state
 
             if len(agent.memory) > agent.batch_size:

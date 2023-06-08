@@ -6,9 +6,8 @@ from multiprocessing.sharedctypes import Value
 import numpy as np
 import pandas as pd
 from stockstats import StockDataFrame as Sdf
-
-from src.config_data import *
-from src.data.YahooDownloader_1Min import *
+from src.config_data import INDICATORS
+from src.data.YahooDownloader import YahooDownloader
 
 
 def load_dataset(*, file_name: str) -> pd.DataFrame:

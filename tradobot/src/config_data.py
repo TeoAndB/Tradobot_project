@@ -81,3 +81,5 @@ USE_TIME_ZONE_SELFDEFINED = 0  # 0 (default) or 1 (use the self defined)
 ALPACA_API_KEY = 'AK50KJ2T4L9E9H638HKM' # your ALPACA_API_KEY
 ALPACA_API_SECRET = 'b6rcgyNXCDS5G0fLUIxR9fWmUdx7m4M20OL1JIFX' # your ALPACA_API_SECRET
 ALPACA_API_BASE_URL = 'https://paper-api.alpaca.markets'  # alpaca url
+
+
