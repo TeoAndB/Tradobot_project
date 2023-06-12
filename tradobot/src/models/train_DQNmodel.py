@@ -1,7 +1,12 @@
 import datetime
+# -*- coding: utf-8 -*-
+import click
+import logging
+from pathlib import Path
+from dotenv import find_dotenv, load_dotenv
 
 from src.config_model_DQN import *
-from src.models.DQN_model_fin import Agent, Portfolio
+from src.models.DQN_model_fin import Agent, Portfolio, getState
 #from functions import *
 
 import logging
@@ -10,7 +15,7 @@ import time
 import click
 import pandas as pd
 import matplotlib.pyplot as plt
-
+import numpy as np
 
 
 @click.command()
@@ -21,29 +26,17 @@ def main(input_filepath, output_filepath):
     """
     logger = logging.getLogger(__name__)
 
-    # TODO: change the number to take all data
-    df = pd.read_csv(f'{input_filepath}/{TRAIN_DATASET}')[:200] = pd.read_csv(f'{input_filepath}/{TRAIN_DATASET}')[:200]
-    NUM_STOCKS = len(df.tic.unique())
+    data = pd.read_csv(f'{input_filepath}/{TRAIN_DATASET}')[:100]
 
-    states_memory = []
+    print(f'Training on data \n{data.head(10)}')
 
-    h = hmax # muser defined maximum amount to buy
+    h = hmax # user defined maximum amount to buy
 
     num_actions = NUM_ACTIONS
 
-    data = df[:200].to_numpy()
+    num_features = len(data.columns) -1 # excluding date
 
-    # create initial portfolio
-    intiial_portfolio = Portfolio()
-    intiial_portfolio.reset_portfolio()
-
-    # num features based on Portfolio state as well
-    num_features = data.shape[1] + intiial_portfolio.flatten()
-
-    # might be we don't have to flatten it
-
-    portfolio = Portfolio(num_stocks=NUM_STOCKS, balance=initial_amount)
-    agent = Agent(num_stocks=NUM_STOCKS, num_actions=NUM_ACTIONS, num_features=num_features, balance=intiial_portfolio.balance,
+    agent = Agent(num_stocks=NUM_STOCKS, actions_dict=ACTIONS_DICTIONARY, num_features=num_features, balance=INITIAL_AMOUNT,
                   gamma=GAMMA, epsilon=EPSILON, epsilon_min=EPSILON_MIN,
                   epsilon_decay=EPSILON_DECAY, learning_rate=LEARNING_RATE, batch_size=BATCH_SIZE)
 
@@ -56,36 +49,51 @@ def main(input_filepath, output_filepath):
         print(f'Epoch {e}')
 
         agent.reset()
-        state = getState(data, 0, agent.portfolio)
-        total_profit = 0
-        agent.inventory = []
+
+        unique_dates = data['date'].unique()
+
+        date_index = unique_dates[0]
+        data_window = data.loc[(data['date'] == unique_dates[0])]
+
+        prev_closing_prices = data_window['close'].tolist()
+        print(prev_closing_prices)
+
+        initial_state, agent = getState(data_window, 0, prev_closing_prices, agent)
+
+        # TODO: use this for the testing period. Update memory_step during the loop and add to an explainability DataFrame
+        # initial_dates = getDates(data[0])
+        # tickers = getTickers(data[0])
+        # initial_closing_prices = getClosingPrices(data[0])
+        #
+        # initial_memory_step = np.stack([initial_dates, initial_closing_prices, agent.portfolio_state],axis=1)
+
+
 
         for t in range(l):
 
-            data_state = data[1]
+            date_index = unique_dates[t]
+            data_window = data.loc[(data['date'] == unique_dates[t])]
+            if t > 0:
+                prev_closing_prices = data.loc[(data['date'] == unique_dates[t-1])]['close'].tolist()
+
+            state = getState(data_window, t, prev_closing_prices, agent)
 
             action_index = agent.act(state)
-            # TODO: modify 10 to action_space
-            if action_index > 10: #action space for a single stock
-                action_index_for_stock_i = action_index/NUM_STOCKS
+
+            if action_index > agent.num_actions: #action space for a single stock
+                action_index_for_stock_i = action_index/agent.num_stocks
             else:
                 action_index_for_stock_i = action_index
 
-            stock_i = action_index % 10 #find which stock the actoon is performed for
+            stock_i = action_index % agent.num_actions #find which stock the actoon is performed for
 
             # take action a, observe reward and next_state
-            reward = agent.execute_action(action_index_for_stock_i, ACTION_DICTIONARY, stock_i, h)
+            reward = agent.execute_action(action_index_for_stock_i, ACTIONS_DICTIONARY, stock_i, h)
 
-            agent.porfolio_states.append(agent.portfolio_state)
+            # add close prices, tickers and agent's memory step to explainability DataFrame
 
-            agent.actions_taken.append(ACTION_DICTIONARY[action_index])
-            agent.actions_dates.append(date)
-
-            # remember buying dates, selling dates
-            # remember porfolio value
-
-            # Next state should append the t+1 data and portfolio_state
-            next_state = getState(data, t+1, agent.portfolio_state)
+            # Next state should append the t+1 data and portfolio_state. It also updates the position of agent portfolio based on agent position
+            next_state, agent = getState(data, t+1, prev_closing_prices, agent)
 
             done = True if l==l-1 else False
             agent.remember(state=state, actions=(action_index_for_stock_i,stock_i, h), reward=reward, next_state=next_state, done=done)
@@ -96,6 +104,8 @@ def main(input_filepath, output_filepath):
                 agent.expReplay(e) # will also save the model on the last epoch
                 loss_history.extend(agent.batch_loss_history)
                 epoch_numbers_history.extent(agent.epoch_numbers)
+
+        print(loss_history)
 
         current_date = datetime.now()
 
@@ -110,6 +120,18 @@ def main(input_filepath, output_filepath):
         plt.savefig(f'./reports/figures/DQN_training_loss_plot_{date_string}.png')
         plt.show()
 
-    # After all the epochs plot the loss values in a final plot and save them
+    # TODO: save trained model in output_filepath
 
+if __name__ == '__main__':
+    log_fmt = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    logging.basicConfig(level=logging.INFO, format=log_fmt)
+
+    # not used in this stub but often useful for finding various files
+    project_dir = Path(__file__).resolve().parents[2]
+
+    # find .env automagically by walking up directories until it's found, then
+    # load up the .env entries as environment variables
+    load_dotenv(find_dotenv())
+
+    main()
 

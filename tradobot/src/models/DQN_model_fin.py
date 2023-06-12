@@ -7,38 +7,71 @@ import torch.nn.functional as F
 import random
 import datetime
 
-from src.config_model_DQN import initial_amount
+from src.config_model_DQN import INITIAL_AMOUNT
+
+def getState(data_window, prev_closing_prices, t, agent):
+    # prev_closing_prices = list of prev_closing_prices
+
+    data_window.drop(['date'], axis=1)
+    if t == 0:
+        data_window_arr = np.array(data_window)
+        portfolio_arr = agent.porfolio_state
+        state = np.hstack((data_window_arr,portfolio_arr.T))
+        return state,agent
+
+    else: # we update options based on last closing prices
+        closing_prices = data_window['close'].tolist()
+
+        for i in range(data_window.shape[0]): # iterate for each stock
+            # no of shares for each stock: position/prev_closing_price * current closing price
+            no_shares = agent.portfolio_state[1,i]/prev_closing_prices[i]
+            agent.porfolio_state[1,i] = no_shares * closing_prices[i]
+
+        data_window_arr = np.array(data_window)
+        portfolio_arr = agent.porfolio_state
+        state = np.hstack((data_window_arr, portfolio_arr.T))
+        return state, agent
 
 
 class Portfolio:
-    def __init__(self, num_stocks, balance=initial_amount):
-        self.initial_portfolio_value = balance
-        self.balance = balance
-        self.num_stocks = num_stocks
-        self.shares = [0]*num_stocks
-        self.shares_list = []
-        self.initial_balance = balance
-        self.inventory = []
-        self.return_rates = []
-        self.portfolio_values = [balance]
-        self.portfolio_state = #MATRIX
+    def __init__(self, num_stocks, balance):
+        self.initial_total_balance = [balance] * num_stocks # pos in stocks + cash left
+        self.initial_position_stocks = [0.0]*num_stocks
+        self.initial_position_portfolio = [0.0]*num_stocks
+        self.initial_daily_return_stock = [0.0] * num_stocks
+        self.initial_daily_return_total = [0.0] * num_stocks
+        self.initial_cash_left = [balance] * num_stocks
+        self.initial_percentage_positions = [0.0] * num_stocks # liquid cash is included
+
+        self.initial_portfolio_state = np.array([self.initial_total_balance,self.initial_position_stocks,
+                                                 self.initial_position_portfolio,
+                                                 self.initial_daily_return_stock, self.initial_daily_return_total,
+                                                 self.initial_cash_left, self.initial_percentage_positions])
 
 
-        self.actions_taken= []
-        self.actions_dates = []
-        self.portfolio_states = []
+        # subject to change while the agent explores
+        self.total_balance = [balance] * num_stocks  # pos in stocks + cash left
+        self.position_stocks = [0.0]*num_stocks
 
+
+        self.position_portfolio = [0.0]*num_stocks
+        self.daily_return_stock = [0.0]*num_stocks
+        self.daily_return_total = [0.0] * num_stocks
+        self.percentage_positions = [0.0] * num_stocks # liquid cash is not included
+        self.cash_left = [balance] * num_stocks
+
+        self.portfolio_state = np.asarray([self.total_balance,self.position_stocks,self.position_portfolio,
+                                             self.daily_return_stock,self.daily_return_total,
+                                             self.cash_left, self.percentage_positions])
 
     def reset_portfolio(self):
-        self.balance = self.initial_portfolio_value
-        self.inventory = []
-        self.return_rates = []
-        self.portfolio_values = [self.initial_portfolio_value]
+        self.portfolio_state = self.initial_portfolio_state
 
 
 class DQNNetwork(nn.Module):
     def __init__(self, num_stocks, num_actions, num_features):
-        super(DQNNetwork, self).__ionit__()
+        super().__init__()
+
         self.num_stocks = num_stocks
         self.num_features = num_features
         self.h_number = int(np.floor(2/3*self.num_stocks * self.num_features)) #recommended size
@@ -52,8 +85,9 @@ class DQNNetwork(nn.Module):
         def forward(self,x):
             h_outputs = nn.ModuleList()
             f_outputs = nn.ModuleList()
+            x = torch.from_numpy(x)
             for i in range(num_stocks):
-                x_i = x[i][:] # TODO: reshape
+                x_i = x[i,:]
                 x_i = torch.linear_h(x_i)
                 x_i = torch.relu(x_i)
                 h_outputs.append(x_i)
@@ -74,13 +108,13 @@ class DQNNetwork(nn.Module):
             return x
 
 class Agent(Portfolio):
-    def __init__(self, num_stocks, num_actions, num_features, balance, gamma=0.99, epsilon=1.0, epsilon_min=0.01,
+    def __init__(self, num_stocks, actions_dict, num_features, balance, gamma=0.99, epsilon=1.0, epsilon_min=0.01,
                  epsilon_decay=0.9999, learning_rate=0.001, batch_size=32):
         super().__init__(balance=balance, num_stocks=num_stocks)
 
         self.num_stocks = num_stocks
-        self.num_actions = num_actions
-        self.num_features = num_features
+        self.num_actions = len(actions_dict)
+        self.actions_dict = actions_dict
         self.gamma = gamma
         self.epsilon = epsilon
         self.epsilon_min = epsilon_min
@@ -93,15 +127,17 @@ class Agent(Portfolio):
         self.batch_size = batch_size
         self.batch_loss_history = []
         self.epoch_numbers = []
+        self.num_features_from_data = num_features
+        self.num_features = self.num_features_from_data + self.portfolio_state.shape[1]
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model = DQNNetwork(num_stocks, num_actions, num_features).to(self.device)
+        self.model = DQNNetwork(num_stocks, self.num_actions, num_features).to(self.device)
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.learning_rate)
 
         self.loss_fn = torch.nn.MSELoss()
 
         # Initialize Q-table to zeros
-        self.Q_table = np.zeros((num_stocks, num_actions))
+        self.Q_table = np.zeros((num_stocks, self.num_actions))
 
     def remember(self, state, actions, reward, next_state, done):
         self.memory.append((state, actions, reward, next_state, done))
@@ -148,6 +184,8 @@ class Agent(Portfolio):
 
             running_loss += loss.item()
 
+            # Printing loss
+
             if i % 100 == 99:
                 avg_loss = running_loss/100
                 self.batch_loss_history.append(avg_loss)
@@ -168,7 +206,7 @@ class Agent(Portfolio):
                 self.epsilon *= self.epsilon_decay
 
     # uses defined transaction actions based on action index
-    def execute_action(self, action_index, action_dictionary, stock_i, h, data):
+    def execute_action(self, action_index, close_price_stock_i, stock_i, h, data):
         # action_dictionary = {
         #     0: self.buy_0_1,
         #     1: self.buy_0_25,
@@ -186,39 +224,637 @@ class Agent(Portfolio):
         # }
 
         # execute the action method based on action_dictionary:
-        next_portfolio_state, reward = action_dictionary.get(action_index, lambda: 'Invalid callable action')(stock_i, h, state)
+        next_portfolio_state, reward = self.action_dictionary.get(action_index, lambda: 'Invalid callable action')(stock_i, h)
         return  next_portfolio_state, reward
 
-    def buy_0_1(self, stock_i, h):
-        self.portfolio # some stuff gets changed
+    def buy_0_1(self, close_price_stock_i, stock_i, h):
+        '''
+        Function to buy 0.1*h_cash of stock_i
 
-    def buy_0_25(self, stock_i, h):
+        '''
 
-    def buy_0_50(self, stock_i, h):
+        # self.portfolio_state = np.array([self.total_balance,self.position_stocks,self.position_portfolio,
+        #                                  self.daily_return_stock,self.daily_return_total,
+        #                                  self.cash_left, self.percentage_positions])
+        # shape: (7, num_stocks)
 
-    def buy_0_75(self, stock_i, h):
+        #indexes
+        # total_balance -> self.portfolio_state[0,:]
+        # (cash) position per stock -> self.portfolio_state[1,:]
+        # (cash) position portfolio -> self.portfolio_state[2,:]
+        # daily return per stock -> self.portfolio_state[3,:]
+        # daily return total portfolio -> self.portfolio_state[4,:]
+        # cash left total -> self.portfolio_state[5,:]
+        # percentage position per stock -> self.portfolio_state[6,:]
 
-    def buy_1(self, stock_i, h):
+        # store prev stock position
+        prev_position_stock = self.portfolio_state[1,stock_i]
 
-    def sell_0_1(self, stock_i, h):
+        # store prev portfolio position # we can take the first element since it is the same value for the whole row
+        prev_position_portfolio = self.position_portfolio[2,0]
 
-    def sell_0_25(self, stock_i, h):
+        # change the value of (cash) position stock_i
+        buy_amount_stock_i = 0.1 * h* close_price_stock_i
+        self.portfolio_state[1,stock_i] = self.portfolio_state[1,stock_i] + buy_amount_stock_i
 
-    def sell_0_50(self, stock_i, h):
+        # update each (cash) position total (same for all): sum of all stock positions
+        for i in range(self.portfolio_state.shape[1]):
+            self.portfolio_state[2,i] = np.sum(self.portfolio_state[1,:])
 
-    def sell_0_75(self, stock_i, h):
+        # update daily return per stock: position stock_i - prev position stock i
+        self.portfolio_state[3,stock_i] = self.portfolio_state[1,stock_i] - prev_position_stock
 
-    def sell_1(self, stock_i, h):
+        # update daily return total portfolio (same for all): position_portfolio - prev position portfolio
+        for i in range(self.portfolio_state.shape[1]):
+            self.portfolio_state[4,i] = self.portfolio_state[2,0] - prev_position_portfolio
 
-    def hold(self, stock_i, h):
+        # update cash left (same for all)
+        for i in range(self.portfolio_state.shape[1]):
+            self.portfolio_state[5, i] = self.initial_total_balance - self.portfolio_state[2,0]
 
-    def sell_everything(self, stock_i, h)):
-        return "Clear Portfolio"
 
-    def buy_1share(self, stock_i, h)):
-        return "Buy 1 share"
+        # update total balance: position plus cash left
+        for i in range(self.portfolio_state.shape[1]):
+            self.total_balance[0,i] = self.portfolio_state[2,0] + self.portfolio_state[4,0]
 
-    def default(self, stock_i, h)):
+        # update percentage of stock position: position stock/total balance
+        self.portfolio_state[6, :] = self.portfolio_state[1,:]/self.portfolio_state[0,:]
+
+        # reward is daily/ min return per protfolio
+        reward = self.portfolio_state[3,0]
+
+        return reward
+
+
+
+    def buy_0_25(self, close_price_stock_i, stock_i, h):
+        # self.portfolio_state = np.array([self.total_balance,self.position_stocks,self.position_portfolio,
+        #                                  self.daily_return_stock,self.daily_return_total,
+        #                                  self.cash_left, self.percentage_positions])
+        # shape: (7, num_stocks)
+
+        #indexes
+        # total_balance -> self.portfolio_state[0,:]
+        # (cash) position per stock -> self.portfolio_state[1,:]
+        # (cash) position portfolio -> self.portfolio_state[2,:]
+        # daily return per stock -> self.portfolio_state[3,:]
+        # daily return total portfolio -> self.portfolio_state[4,:]
+        # cash left total -> self.portfolio_state[5,:]
+        # percentage position per stock -> self.portfolio_state[6,:]
+
+        # store prev stock position
+        prev_position_stock = self.portfolio_state[1,stock_i]
+
+        # store prev portfolio position # we can take the first element since it is the same value for the whole row
+        prev_position_portfolio = self.position_portfolio[2,0]
+
+        # change the value of (cash) position stock_i
+        buy_amount_stock_i = 0.25 * h* close_price_stock_i
+        self.portfolio_state[1,stock_i] = self.portfolio_state[1,stock_i] + buy_amount_stock_i
+
+        # update each (cash) position total (same for all): sum of all stock positions
+        for i in range(self.portfolio_state.shape[1]):
+            self.portfolio_state[2,i] = np.sum(self.portfolio_state[1,:])
+
+        # update daily return per stock: position stock_i - prev position stock i
+        self.portfolio_state[3,stock_i] = self.portfolio_state[1,stock_i] - prev_position_stock
+
+        # update daily return total portfolio (same for all): position_portfolio - prev position portfolio
+        for i in range(self.portfolio_state.shape[1]):
+            self.portfolio_state[4,i] = self.portfolio_state[2,0] - prev_position_portfolio
+
+        # update cash left (same for all)
+        for i in range(self.portfolio_state.shape[1]):
+            self.portfolio_state[5, i] = self.initial_total_balance - self.portfolio_state[2,0]
+
+
+        # update total balance: position plus cash left
+        for i in range(self.portfolio_state.shape[1]):
+            self.total_balance[0,i] = self.portfolio_state[2,0] + self.portfolio_state[4,0]
+
+        # update percentage of stock position: position stock/total balance
+        self.portfolio_state[6, :] = self.portfolio_state[1,:]/self.portfolio_state[0,:]
+
+        # reward is daily/ min return per protfolio
+        reward = self.portfolio_state[3,0]
+
+        return reward
+
+    def buy_0_50(self, close_price_stock_i, stock_i, h):
+        # self.portfolio_state = np.array([self.total_balance,self.position_stocks,self.position_portfolio,
+        #                                  self.daily_return_stock,self.daily_return_total,
+        #                                  self.cash_left, self.percentage_positions])
+        # shape: (7, num_stocks)
+
+        #indexes
+        # total_balance -> self.portfolio_state[0,:]
+        # (cash) position per stock -> self.portfolio_state[1,:]
+        # (cash) position portfolio -> self.portfolio_state[2,:]
+        # daily return per stock -> self.portfolio_state[3,:]
+        # daily return total portfolio -> self.portfolio_state[4,:]
+        # cash left total -> self.portfolio_state[5,:]
+        # percentage position per stock -> self.portfolio_state[6,:]
+
+        # store prev stock position
+        prev_position_stock = self.portfolio_state[1,stock_i]
+
+        # store prev portfolio position # we can take the first element since it is the same value for the whole row
+        prev_position_portfolio = self.position_portfolio[2,0]
+
+        # change the value of (cash) position stock_i
+        buy_amount_stock_i = 0.5 * h* close_price_stock_i
+        self.portfolio_state[1,stock_i] = self.portfolio_state[1,stock_i] + buy_amount_stock_i
+
+        # update each (cash) position total (same for all): sum of all stock positions
+        for i in range(self.portfolio_state.shape[1]):
+            self.portfolio_state[2,i] = np.sum(self.portfolio_state[1,:])
+
+        # update daily return per stock: position stock_i - prev position stock i
+        self.portfolio_state[3,stock_i] = self.portfolio_state[1,stock_i] - prev_position_stock
+
+        # update daily return total portfolio (same for all): position_portfolio - prev position portfolio
+        for i in range(self.portfolio_state.shape[1]):
+            self.portfolio_state[4,i] = self.portfolio_state[2,0] - prev_position_portfolio
+
+        # update cash left (same for all)
+        for i in range(self.portfolio_state.shape[1]):
+            self.portfolio_state[5, i] = self.initial_total_balance - self.portfolio_state[2,0]
+
+
+        # update total balance: position plus cash left
+        for i in range(self.portfolio_state.shape[1]):
+            self.total_balance[0,i] = self.portfolio_state[2,0] + self.portfolio_state[4,0]
+
+        # update percentage of stock position: position stock/total balance
+        self.portfolio_state[6, :] = self.portfolio_state[1,:]/self.portfolio_state[0,:]
+
+        # reward is daily/ min return per protfolio
+        reward = self.portfolio_state[3,0]
+
+        return reward
+
+    def buy_0_75(self, close_price_stock_i, stock_i, h):
+        # self.portfolio_state = np.array([self.total_balance,self.position_stocks,self.position_portfolio,
+        #                                  self.daily_return_stock,self.daily_return_total,
+        #                                  self.cash_left, self.percentage_positions])
+        # shape: (7, num_stocks)
+
+        #indexes
+        # total_balance -> self.portfolio_state[0,:]
+        # (cash) position per stock -> self.portfolio_state[1,:]
+        # (cash) position portfolio -> self.portfolio_state[2,:]
+        # daily return per stock -> self.portfolio_state[3,:]
+        # daily return total portfolio -> self.portfolio_state[4,:]
+        # cash left total -> self.portfolio_state[5,:]
+        # percentage position per stock -> self.portfolio_state[6,:]
+
+        # store prev stock position
+        prev_position_stock = self.portfolio_state[1,stock_i]
+
+        # store prev portfolio position # we can take the first element since it is the same value for the whole row
+        prev_position_portfolio = self.position_portfolio[2,0]
+
+        # change the value of (cash) position stock_i
+        buy_amount_stock_i = 0.75 * h* close_price_stock_i
+        self.portfolio_state[1,stock_i] = self.portfolio_state[1,stock_i] + buy_amount_stock_i
+
+        # update each (cash) position total (same for all): sum of all stock positions
+        for i in range(self.portfolio_state.shape[1]):
+            self.portfolio_state[2,i] = np.sum(self.portfolio_state[1,:])
+
+        # update daily return per stock: position stock_i - prev position stock i
+        self.portfolio_state[3,stock_i] = self.portfolio_state[1,stock_i] - prev_position_stock
+
+        # update daily return total portfolio (same for all): position_portfolio - prev position portfolio
+        for i in range(self.portfolio_state.shape[1]):
+            self.portfolio_state[4,i] = self.portfolio_state[2,0] - prev_position_portfolio
+
+        # update cash left (same for all)
+        for i in range(self.portfolio_state.shape[1]):
+            self.portfolio_state[5, i] = self.initial_total_balance - self.portfolio_state[2,0]
+
+
+        # update total balance: position plus cash left
+        for i in range(self.portfolio_state.shape[1]):
+            self.total_balance[0,i] = self.portfolio_state[2,0] + self.portfolio_state[4,0]
+
+        # update percentage of stock position: position stock/total balance
+        self.portfolio_state[6, :] = self.portfolio_state[1,:]/self.portfolio_state[0,:]
+
+        # reward is daily/ min return per protfolio
+        reward = self.portfolio_state[3,0]
+
+        return reward
+
+    def buy_1(self, close_price_stock_i, stock_i, h):
+        # self.portfolio_state = np.array([self.total_balance,self.position_stocks,self.position_portfolio,
+        #                                  self.daily_return_stock,self.daily_return_total,
+        #                                  self.cash_left, self.percentage_positions])
+        # shape: (7, num_stocks)
+
+        #indexes
+        # total_balance -> self.portfolio_state[0,:]
+        # (cash) position per stock -> self.portfolio_state[1,:]
+        # (cash) position portfolio -> self.portfolio_state[2,:]
+        # daily return per stock -> self.portfolio_state[3,:]
+        # daily return total portfolio -> self.portfolio_state[4,:]
+        # cash left total -> self.portfolio_state[5,:]
+        # percentage position per stock -> self.portfolio_state[6,:]
+
+        # store prev stock position
+        prev_position_stock = self.portfolio_state[1,stock_i]
+
+        # store prev portfolio position # we can take the first element since it is the same value for the whole row
+        prev_position_portfolio = self.position_portfolio[2,0]
+
+        # change the value of (cash) position stock_i
+        buy_amount_stock_i = 1 * h* close_price_stock_i
+        self.portfolio_state[1,stock_i] = self.portfolio_state[1,stock_i] + buy_amount_stock_i
+
+        # update each (cash) position total (same for all): sum of all stock positions
+        for i in range(self.portfolio_state.shape[1]):
+            self.portfolio_state[2,i] = np.sum(self.portfolio_state[1,:])
+
+        # update daily return per stock: position stock_i - prev position stock i
+        self.portfolio_state[3,stock_i] = self.portfolio_state[1,stock_i] - prev_position_stock
+
+        # update daily return total portfolio (same for all): position_portfolio - prev position portfolio
+        for i in range(self.portfolio_state.shape[1]):
+            self.portfolio_state[4,i] = self.portfolio_state[2,0] - prev_position_portfolio
+
+        # update cash left (same for all)
+        for i in range(self.portfolio_state.shape[1]):
+            self.portfolio_state[5, i] = self.initial_total_balance - self.portfolio_state[2,0]
+
+
+        # update total balance: position plus cash left
+        for i in range(self.portfolio_state.shape[1]):
+            self.total_balance[0,i] = self.portfolio_state[2,0] + self.portfolio_state[4,0]
+
+        # update percentage of stock position: position stock/total balance
+        self.portfolio_state[6, :] = self.portfolio_state[1,:]/self.portfolio_state[0,:]
+
+        # reward is daily/ min return per protfolio
+        reward = self.portfolio_state[3,0]
+
+        return reward
+
+    def sell_0_1(self, close_price_stock_i, stock_i, h):
+        # self.portfolio_state = np.array([self.total_balance,self.position_stocks,self.position_portfolio,
+        #                                  self.daily_return_stock,self.daily_return_total,
+        #                                  self.cash_left, self.percentage_positions])
+        # shape: (7, num_stocks)
+
+        #indexes
+        # total_balance -> self.portfolio_state[0,:]
+        # (cash) position per stock -> self.portfolio_state[1,:]
+        # (cash) position portfolio -> self.portfolio_state[2,:]
+        # daily return per stock -> self.portfolio_state[3,:]
+        # daily return total portfolio -> self.portfolio_state[4,:]
+        # cash left total -> self.portfolio_state[5,:]
+        # percentage position per stock -> self.portfolio_state[6,:]
+
+        # store prev stock position
+        prev_position_stock = self.portfolio_state[1,stock_i]
+
+        # store prev portfolio position # we can take the first element since it is the same value for the whole row
+        prev_position_portfolio = self.position_portfolio[2,0]
+
+        # change the value of (cash) position stock_i
+        sell_amount_stock_i = 0.01 * h* close_price_stock_i
+        self.portfolio_state[1,stock_i] = self.portfolio_state[1,stock_i] - sell_amount_stock_i
+
+        # update each (cash) position total (same for all): sum of all stock positions
+        for i in range(self.portfolio_state.shape[1]):
+            self.portfolio_state[2,i] = np.sum(self.portfolio_state[1,:])
+
+        # update daily return per stock: position stock_i - prev position stock i
+        self.portfolio_state[3,stock_i] = self.portfolio_state[1,stock_i] - prev_position_stock
+
+        # update daily return total portfolio (same for all): position_portfolio - prev position portfolio
+        for i in range(self.portfolio_state.shape[1]):
+            self.portfolio_state[4,i] = self.portfolio_state[2,0] - prev_position_portfolio
+
+        # update cash left (same for all)
+        for i in range(self.portfolio_state.shape[1]):
+            self.portfolio_state[5, i] = self.initial_total_balance - self.portfolio_state[2,0]
+
+
+        # update total balance: position plus cash left
+        for i in range(self.portfolio_state.shape[1]):
+            self.total_balance[0,i] = self.portfolio_state[2,0] + self.portfolio_state[4,0]
+
+        # update percentage of stock position: position stock/total balance
+        self.portfolio_state[6, :] = self.portfolio_state[1,:]/self.portfolio_state[0,:]
+
+        # reward is daily/ min return per protfolio
+        reward = self.portfolio_state[3,0]
+
+        return reward
+
+
+    def sell_0_25(self, close_price_stock_i, stock_i, h):
+        # self.portfolio_state = np.array([self.total_balance,self.position_stocks,self.position_portfolio,
+        #                                  self.daily_return_stock,self.daily_return_total,
+        #                                  self.cash_left, self.percentage_positions])
+        # shape: (7, num_stocks)
+
+        #indexes
+        # total_balance -> self.portfolio_state[0,:]
+        # (cash) position per stock -> self.portfolio_state[1,:]
+        # (cash) position portfolio -> self.portfolio_state[2,:]
+        # daily return per stock -> self.portfolio_state[3,:]
+        # daily return total portfolio -> self.portfolio_state[4,:]
+        # cash left total -> self.portfolio_state[5,:]
+        # percentage position per stock -> self.portfolio_state[6,:]
+
+        # store prev stock position
+        prev_position_stock = self.portfolio_state[1,stock_i]
+
+        # store prev portfolio position # we can take the first element since it is the same value for the whole row
+        prev_position_portfolio = self.position_portfolio[2,0]
+
+        # change the value of (cash) position stock_i
+        sell_amount_stock_i = 0.25 * h* close_price_stock_i
+        self.portfolio_state[1,stock_i] = self.portfolio_state[1,stock_i] - sell_amount_stock_i
+
+        # update each (cash) position total (same for all): sum of all stock positions
+        for i in range(self.portfolio_state.shape[1]):
+            self.portfolio_state[2,i] = np.sum(self.portfolio_state[1,:])
+
+        # update daily return per stock: position stock_i - prev position stock i
+        self.portfolio_state[3,stock_i] = self.portfolio_state[1,stock_i] - prev_position_stock
+
+        # update daily return total portfolio (same for all): position_portfolio - prev position portfolio
+        for i in range(self.portfolio_state.shape[1]):
+            self.portfolio_state[4,i] = self.portfolio_state[2,0] - prev_position_portfolio
+
+        # update cash left (same for all)
+        for i in range(self.portfolio_state.shape[1]):
+            self.portfolio_state[5, i] = self.initial_total_balance - self.portfolio_state[2,0]
+
+
+        # update total balance: position plus cash left
+        for i in range(self.portfolio_state.shape[1]):
+            self.total_balance[0,i] = self.portfolio_state[2,0] + self.portfolio_state[4,0]
+
+        # update percentage of stock position: position stock/total balance
+        self.portfolio_state[6, :] = self.portfolio_state[1,:]/self.portfolio_state[0,:]
+
+        # reward is daily/ min return per protfolio
+        reward = self.portfolio_state[3,0]
+
+        return reward
+
+    def sell_0_50(self, close_price_stock_i, stock_i, h):
+        # self.portfolio_state = np.array([self.total_balance,self.position_stocks,self.position_portfolio,
+        #                                  self.daily_return_stock,self.daily_return_total,
+        #                                  self.cash_left, self.percentage_positions])
+        # shape: (7, num_stocks)
+
+        #indexes
+        # total_balance -> self.portfolio_state[0,:]
+        # (cash) position per stock -> self.portfolio_state[1,:]
+        # (cash) position portfolio -> self.portfolio_state[2,:]
+        # daily return per stock -> self.portfolio_state[3,:]
+        # daily return total portfolio -> self.portfolio_state[4,:]
+        # cash left total -> self.portfolio_state[5,:]
+        # percentage position per stock -> self.portfolio_state[6,:]
+
+        # store prev stock position
+        prev_position_stock = self.portfolio_state[1,stock_i]
+
+        # store prev portfolio position # we can take the first element since it is the same value for the whole row
+        prev_position_portfolio = self.position_portfolio[2,0]
+
+        # change the value of (cash) position stock_i
+        sell_amount_stock_i = 0.5 * h* close_price_stock_i
+        self.portfolio_state[1,stock_i] = self.portfolio_state[1,stock_i] - sell_amount_stock_i
+
+        # update each (cash) position total (same for all): sum of all stock positions
+        for i in range(self.portfolio_state.shape[1]):
+            self.portfolio_state[2,i] = np.sum(self.portfolio_state[1,:])
+
+        # update daily return per stock: position stock_i - prev position stock i
+        self.portfolio_state[3,stock_i] = self.portfolio_state[1,stock_i] - prev_position_stock
+
+        # update daily return total portfolio (same for all): position_portfolio - prev position portfolio
+        for i in range(self.portfolio_state.shape[1]):
+            self.portfolio_state[4,i] = self.portfolio_state[2,0] - prev_position_portfolio
+
+        # update cash left (same for all)
+        for i in range(self.portfolio_state.shape[1]):
+            self.portfolio_state[5, i] = self.initial_total_balance - self.portfolio_state[2,0]
+
+
+        # update total balance: position plus cash left
+        for i in range(self.portfolio_state.shape[1]):
+            self.total_balance[0,i] = self.portfolio_state[2,0] + self.portfolio_state[4,0]
+
+        # update percentage of stock position: position stock/total balance
+        self.portfolio_state[6, :] = self.portfolio_state[1,:]/self.portfolio_state[0,:]
+
+        # reward is daily/ min return per protfolio
+        reward = self.portfolio_state[3,0]
+
+        return reward
+
+    def sell_0_75(self, close_price_stock_i, stock_i, h):
+        # self.portfolio_state = np.array([self.total_balance,self.position_stocks,self.position_portfolio,
+        #                                  self.daily_return_stock,self.daily_return_total,
+        #                                  self.cash_left, self.percentage_positions])
+        # shape: (7, num_stocks)
+
+        #indexes
+        # total_balance -> self.portfolio_state[0,:]
+        # (cash) position per stock -> self.portfolio_state[1,:]
+        # (cash) position portfolio -> self.portfolio_state[2,:]
+        # daily return per stock -> self.portfolio_state[3,:]
+        # daily return total portfolio -> self.portfolio_state[4,:]
+        # cash left total -> self.portfolio_state[5,:]
+        # percentage position per stock -> self.portfolio_state[6,:]
+
+        # store prev stock position
+        prev_position_stock = self.portfolio_state[1,stock_i]
+
+        # store prev portfolio position # we can take the first element since it is the same value for the whole row
+        prev_position_portfolio = self.position_portfolio[2,0]
+
+        # change the value of (cash) position stock_i
+        sell_amount_stock_i = 0.75 * h* close_price_stock_i
+        self.portfolio_state[1,stock_i] = self.portfolio_state[1,stock_i] - sell_amount_stock_i
+
+        # update each (cash) position total (same for all): sum of all stock positions
+        for i in range(self.portfolio_state.shape[1]):
+            self.portfolio_state[2,i] = np.sum(self.portfolio_state[1,:])
+
+        # update daily return per stock: position stock_i - prev position stock i
+        self.portfolio_state[3,stock_i] = self.portfolio_state[1,stock_i] - prev_position_stock
+
+        # update daily return total portfolio (same for all): position_portfolio - prev position portfolio
+        for i in range(self.portfolio_state.shape[1]):
+            self.portfolio_state[4,i] = self.portfolio_state[2,0] - prev_position_portfolio
+
+        # update cash left (same for all)
+        for i in range(self.portfolio_state.shape[1]):
+            self.portfolio_state[5, i] = self.initial_total_balance - self.portfolio_state[2,0]
+
+
+        # update total balance: position plus cash left
+        for i in range(self.portfolio_state.shape[1]):
+            self.total_balance[0,i] = self.portfolio_state[2,0] + self.portfolio_state[4,0]
+
+        # update percentage of stock position: position stock/total balance
+        self.portfolio_state[6, :] = self.portfolio_state[1,:]/self.portfolio_state[0,:]
+
+        # reward is daily/ min return per protfolio
+        reward = self.portfolio_state[3,0]
+
+        return reward
+
+    def sell_1(self, close_price_stock_i, stock_i, h):
+        # self.portfolio_state = np.array([self.total_balance,self.position_stocks,self.position_portfolio,
+        #                                  self.daily_return_stock,self.daily_return_total,
+        #                                  self.cash_left, self.percentage_positions])
+        # shape: (7, num_stocks)
+
+        #indexes
+        # total_balance -> self.portfolio_state[0,:]
+        # (cash) position per stock -> self.portfolio_state[1,:]
+        # (cash) position portfolio -> self.portfolio_state[2,:]
+        # daily return per stock -> self.portfolio_state[3,:]
+        # daily return total portfolio -> self.portfolio_state[4,:]
+        # cash left total -> self.portfolio_state[5,:]
+        # percentage position per stock -> self.portfolio_state[6,:]
+
+        # store prev stock position
+        prev_position_stock = self.portfolio_state[1,stock_i]
+
+        # store prev portfolio position # we can take the first element since it is the same value for the whole row
+        prev_position_portfolio = self.position_portfolio[2,0]
+
+        # change the value of (cash) position stock_i
+        sell_amount_stock_i = 1 * h* close_price_stock_i
+        self.portfolio_state[1,stock_i] = self.portfolio_state[1,stock_i] - sell_amount_stock_i
+
+        # update each (cash) position total (same for all): sum of all stock positions
+        for i in range(self.portfolio_state.shape[1]):
+            self.portfolio_state[2,i] = np.sum(self.portfolio_state[1,:])
+
+        # update daily return per stock: position stock_i - prev position stock i
+        self.portfolio_state[3,stock_i] = self.portfolio_state[1,stock_i] - prev_position_stock
+
+        # update daily return total portfolio (same for all): position_portfolio - prev position portfolio
+        for i in range(self.portfolio_state.shape[1]):
+            self.portfolio_state[4,i] = self.portfolio_state[2,0] - prev_position_portfolio
+
+        # update cash left (same for all)
+        for i in range(self.portfolio_state.shape[1]):
+            self.portfolio_state[5, i] = self.initial_total_balance - self.portfolio_state[2,0]
+
+
+        # update total balance: position plus cash left
+        for i in range(self.portfolio_state.shape[1]):
+            self.total_balance[0,i] = self.portfolio_state[2,0] + self.portfolio_state[4,0]
+
+        # update percentage of stock position: position stock/total balance
+        self.portfolio_state[6, :] = self.portfolio_state[1,:]/self.portfolio_state[0,:]
+
+        # reward is daily/ min return per protfolio
+        reward = self.portfolio_state[3,0]
+
+        return reward
+
+    def hold(self, close_price_stock_i, stock_i, h):
+        reward = self.portfolio_state[3,0]
+
+        return reward
+
+    def sell_everything(self, pos_portfolio_prev, close_price_stock_i, stock_i, h):
+        # self.portfolio_state = np.array([self.total_balance,self.position_stocks,self.position_portfolio,
+        #                                  self.daily_return_stock,self.daily_return_total,
+        #                                  self.cash_left, self.percentage_positions])
+        # shape: (7, num_stocks)
+
+        # indexes
+        # total_balance -> self.portfolio_state[0,:]
+        # (cash) position per stock -> self.portfolio_state[1,:]
+        # (cash) position portfolio -> self.portfolio_state[2,:]
+        # daily return per stock -> self.portfolio_state[3,:]
+        # daily return total portfolio -> self.portfolio_state[4,:]
+        # cash left total -> self.portfolio_state[5,:]
+        # percentage position per stock -> self.portfolio_state[6,:]
+
+        #  total balance after selling
+        balance_sold = self.portfolio_state[0, 0]
+
+        self.reset_portfolio()
+
+        # update total balance: position plus cash left
+        for i in range(self.portfolio_state.shape[1]):
+            self.total_balance[0, i] = balance_sold
+
+        # update cash left balance:
+        for i in range(self.portfolio_state.shape[1]):
+            self.total_balance[5, i] = balance_sold
+
+        reward = 0
+
+        return reward
+
+    def buy_1share(self, pos_portfolio_prev, close_price_stock_i, stock_i, h):
+        # self.portfolio_state = np.array([self.total_balance,self.position_stocks,self.position_portfolio,
+        #                                  self.daily_return_stock,self.daily_return_total,
+        #                                  self.cash_left, self.percentage_positions])
+        # shape: (7, num_stocks)
+
+        # indexes
+        # total_balance -> self.portfolio_state[0,:]
+        # (cash) position per stock -> self.portfolio_state[1,:]
+        # (cash) position portfolio -> self.portfolio_state[2,:]
+        # daily return per stock -> self.portfolio_state[3,:]
+        # daily return total portfolio -> self.portfolio_state[4,:]
+        # cash left total -> self.portfolio_state[5,:]
+        # percentage position per stock -> self.portfolio_state[6,:]
+
+        # store prev stock position
+        prev_position_stock = self.portfolio_state[1, stock_i]
+
+        # store prev portfolio position # we can take the first element since it is the same value for the whole row
+        prev_position_portfolio = self.position_portfolio[2, 0]
+
+        # change the value of (cash) position stock_i
+        buy_amount_stock_i = close_price_stock_i
+        self.portfolio_state[1, stock_i] = self.portfolio_state[1, stock_i] + buy_amount_stock_i
+
+        # update each (cash) position total (same for all): sum of all stock positions
+        for i in range(self.portfolio_state.shape[1]):
+            self.portfolio_state[2, i] = np.sum(self.portfolio_state[1, :])
+
+        # update daily return per stock: position stock_i - prev position stock i
+        self.portfolio_state[3, stock_i] = self.portfolio_state[1, stock_i] - prev_position_stock
+
+        # update daily return total portfolio (same for all): position_portfolio - prev position portfolio
+        for i in range(self.portfolio_state.shape[1]):
+            self.portfolio_state[4, i] = self.portfolio_state[2, 0] - prev_position_portfolio
+
+        # update cash left (same for all)
+        for i in range(self.portfolio_state.shape[1]):
+            self.portfolio_state[5, i] = self.initial_total_balance - self.portfolio_state[2, 0]
+
+        # update total balance: position plus cash left
+        for i in range(self.portfolio_state.shape[1]):
+            self.total_balance[0, i] = self.portfolio_state[2, 0] + self.portfolio_state[4, 0]
+
+        # update percentage of stock position: position stock/total balance
+        self.portfolio_state[6, :] = self.portfolio_state[1, :] / self.portfolio_state[0, :]
+
+        # reward is daily/ min return per protfolio
+        reward = self.portfolio_state[3, 0]
+
+        return reward
+
+    def default(self, pos_portfolio_prev, close_price_stock_i, stock_i, h):
         print("Invalid action")
 
 #############################################################333333

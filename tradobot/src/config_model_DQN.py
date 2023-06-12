@@ -6,7 +6,8 @@ from src.config_data import *
 # predefined parameter that sets as the maximum amount of shares to trade.
 hmax = 100
 # liquid cash deposit
-initial_amount = 1000000
+INITIAL_AMOUNT = 1000000
+
 
 
 
@@ -17,9 +18,9 @@ sell_cost_pct = 0.001
 
 
 # DATA PARAMETERS ####################################################
-TRAIN_DATASET = "dataset1_1Day_HA-WBA-INCY.csv"
+TRAIN_DATASET = "dataset_1Min_AMZN-MSFT-SPY.csv"
 DATASET_INDEX = 1
-
+NUM_STOCKS = 3
 
 # DQN Params #####################
 NUM_EPOCHS = 10
@@ -42,7 +43,7 @@ TEST_END_DATE = '2021-12-31'
 
 NUM_ACTIONS = 12
 
-ACTION_DICTIONARY = {
+ACTIONS_DICTIONARY = {
     0: 'buy_0_1',
     1: 'buy_0_25',
     2: 'buy_0_50',
