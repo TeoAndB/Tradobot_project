@@ -15,6 +15,7 @@ import time
 import click
 import pandas as pd
 import matplotlib.pyplot as plt
+import torch
 import numpy as np
 
 
@@ -27,14 +28,12 @@ def main(input_filepath, output_filepath):
     logger = logging.getLogger(__name__)
 
     data = pd.read_csv(f'{input_filepath}/{TRAIN_DATASET}')[:100]
+    print(f'Training on dataset: {input_filepath}/{TRAIN_DATASET}')
 
-    print(f'Training on data \n{data.head(10)}')
 
     h = hmax # user defined maximum amount to buy
 
-    num_actions = NUM_ACTIONS
-
-    num_features = len(data.columns) -1 # excluding date
+    num_features = len(data.columns) + len(data.tic.unique()) - 1 #data_window after being preprocessed with one hot encoding
 
     agent = Agent(num_stocks=NUM_STOCKS, actions_dict=ACTIONS_DICTIONARY, num_features=num_features, balance=INITIAL_AMOUNT,
                   gamma=GAMMA, epsilon=EPSILON, epsilon_min=EPSILON_MIN,
@@ -56,7 +55,6 @@ def main(input_filepath, output_filepath):
         data_window = data.loc[(data['date'] == unique_dates[0])]
 
         prev_closing_prices = data_window['close'].tolist()
-        print(prev_closing_prices)
 
         initial_state, agent = getState(data_window, 0, prev_closing_prices, agent)
 

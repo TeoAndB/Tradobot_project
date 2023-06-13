@@ -6,31 +6,46 @@ import numpy as np
 import torch.nn.functional as F
 import random
 import datetime
+from datetime import datetime
+import pandas as pd
 
 from src.config_model_DQN import INITIAL_AMOUNT
 
-def getState(data_window, prev_closing_prices, t, agent):
+def getState(data_window, t, prev_closing_prices, agent):
+    data_window = data_window.fillna(0.0)
     # prev_closing_prices = list of prev_closing_prices
+    # encode the date as a number
+    reference_date = datetime(2008,9,15)
+    data_window['date'] = pd.to_datetime(data_window['date'])
+    data_window['Date_Encoded'] = (data_window['date'] - reference_date).dt.days
+    data_window = data_window.drop(['date'], axis=1)
 
-    data_window.drop(['date'], axis=1)
+    # one-hot-encode the 'TIC' aka stock name
+    one_hot = pd.get_dummies(data_window['tic'])
+    data_window = data_window.drop('tic', axis=1)
+    # Join the encoded df
+    data_window = data_window.join(one_hot)
+    data_window_arr = data_window.to_numpy()
+
     if t == 0:
-        data_window_arr = np.array(data_window)
-        portfolio_arr = agent.porfolio_state
-        state = np.hstack((data_window_arr,portfolio_arr.T))
-        return state,agent
+
+
+        portfolio_arr = agent.portfolio_state.T
+
+        state = np.column_stack((data_window_arr,portfolio_arr))
 
     else: # we update options based on last closing prices
         closing_prices = data_window['close'].tolist()
 
         for i in range(data_window.shape[0]): # iterate for each stock
             # no of shares for each stock: position/prev_closing_price * current closing price
-            no_shares = agent.portfolio_state[1,i]/prev_closing_prices[i]
+            no_shares = agent.portfolio_state[1,i]/float(prev_closing_prices[i])
             agent.porfolio_state[1,i] = no_shares * closing_prices[i]
 
-        data_window_arr = np.array(data_window)
-        portfolio_arr = agent.porfolio_state
-        state = np.hstack((data_window_arr, portfolio_arr.T))
-        return state, agent
+        portfolio_arr = agent.porfolio_state.T
+        state = np.column_stack((data_window_arr, portfolio_arr)).astype(np.float64)
+
+    return state, agent
 
 
 class Portfolio:
@@ -74,38 +89,43 @@ class DQNNetwork(nn.Module):
 
         self.num_stocks = num_stocks
         self.num_features = num_features
-        self.h_number = int(np.floor(2/3*self.num_stocks * self.num_features)) #recommended size
+        self.h_number = int(np.floor(2/3*self.num_features)) #recommended size
         self.f_number = self.h_number * 2 #since input will be double
         self.num_actions = num_actions
 
         # define layers
         self.linear_h = nn.Linear(self.num_features, self.h_number)
         self.linear_f = nn.Linear(self.f_number, self.num_actions)
+        self.activation = torch.nn.ReLU()
 
-        def forward(self,x):
-            h_outputs = nn.ModuleList()
-            f_outputs = nn.ModuleList()
-            x = torch.from_numpy(x)
-            for i in range(num_stocks):
-                x_i = x[i,:]
-                x_i = torch.linear_h(x_i)
-                x_i = torch.relu(x_i)
-                h_outputs.append(x_i)
-            for i in range(num_stocks):
-                h_outputs_without_i = h_outputs[:i] + h_outputs[(i+1):] #list of tensors without i
-                h_outputs_without_i_tensor = torch.cat(h_outputs_without_i, dim=1)
-                # create a vector with h_outputs for stock i and mean of stocks i+1,i+2...in
-                f_input_i = [h_outputs[i], torch.mean(h_outputs_without_i_tensor)]
-                f_input_i = torch.cat(f_input_i, dim=1)
-                f_input_i = torch.flatten(f_input_i)
-                # pass through network of size f_number
-                f_input_i = self.linear_f(f_input_i)  #row of num_actions for each stock entry in the Q table
-                f_outputs.append(f_input_i)
+    def forward(self,x):
+        h_outputs = nn.ModuleList()
+        f_outputs = nn.ModuleList()
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        print(f' Model running is on {device}')
+        x = torch.from_numpy(x[0]).to(device)
+        for i in range(self.num_stocks):
+            x_i = x[i,:].float()
+            x_i = self.linear_h(x_i)
+            x_i = self.activation(x_i)
+            print(f'we got here')
+            h_outputs.append(x_i)
+        for i in range(self.num_stocks):
+            h_outputs_without_i = h_outputs[:i] + h_outputs[(i+1):] #list of tensors without i
+            h_outputs_without_i_tensor = torch.cat(h_outputs_without_i, dim=1)
+            # create a vector with h_outputs for stock i and mean of stocks i+1,i+2...in
+            f_input_i = [h_outputs[i], torch.mean(h_outputs_without_i_tensor)]
+            f_input_i = torch.cat(f_input_i, dim=1)
+            f_input_i = torch.flatten(f_input_i)
+            # pass through network of size f_number
+            f_input_i = self.linear_f(f_input_i)  #row of num_actions for each stock entry in the Q table
+            f_input_i = self.activation(f_input_i)
+            f_outputs.append(f_input_i)
 
-            x = torch.cat(f_outputs, dim=1)
-            x = torch.flatten(x)
-            #  final flattened output of size (num_stocks x num_actions)
-            return x
+        x = torch.cat(f_outputs, dim=1)
+        x = torch.flatten(x)
+        #  final flattened output of size (num_stocks x num_actions)
+        return x
 
 class Agent(Portfolio):
     def __init__(self, num_stocks, actions_dict, num_features, balance, gamma=0.99, epsilon=1.0, epsilon_min=0.01,
@@ -128,10 +148,10 @@ class Agent(Portfolio):
         self.batch_loss_history = []
         self.epoch_numbers = []
         self.num_features_from_data = num_features
-        self.num_features = self.num_features_from_data + self.portfolio_state.shape[1]
+        self.num_features_total = self.num_features_from_data + self.portfolio_state.shape[0]
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model = DQNNetwork(num_stocks, self.num_actions, num_features).to(self.device)
+        self.model = DQNNetwork(num_stocks, self.num_actions, self.num_features_total).to(self.device).float()
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.learning_rate)
 
         self.loss_fn = torch.nn.MSELoss()
@@ -147,7 +167,7 @@ class Agent(Portfolio):
         self.epsilon = 1.0 # reset exploration rate
 
     def act(self, state):
-        if not self.is_eval and np.random.rand() <= self.epsilon:
+        if not self.model.training and np.random.rand() <= self.epsilon:
             return random.randrange(self.num_actions*self.num_stocks)
             logging.info(f" exploration stage.")
 
@@ -169,7 +189,7 @@ class Agent(Portfolio):
             next_state_tensor = torch.tensor(next_state).unsqueeze(0)
 
             if not done:
-                Q_target_value = reward + self.gamma * torch.max(self.model(next_state_tensor))
+                Q_target_value = reward + self.gamma * torch.max(self.model.forward(next_state_tensor))
             else:
                 Q_target_value = reward
 
