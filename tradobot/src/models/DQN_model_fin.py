@@ -99,8 +99,8 @@ class DQNNetwork(nn.Module):
         self.activation = torch.nn.ReLU()
 
     def forward(self,x):
-        h_outputs = nn.ModuleList()
-        f_outputs = nn.ModuleList()
+        h_outputs = []
+        f_outputs = []
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         print(f' Model running is on {device}')
         x = torch.from_numpy(x[0]).to(device)
@@ -108,23 +108,26 @@ class DQNNetwork(nn.Module):
             x_i = x[i,:].float()
             x_i = self.linear_h(x_i)
             x_i = self.activation(x_i)
-            print(f'we got here')
             h_outputs.append(x_i)
         for i in range(self.num_stocks):
-            h_outputs_without_i = h_outputs[:i] + h_outputs[(i+1):] #list of tensors without i
-            h_outputs_without_i_tensor = torch.cat(h_outputs_without_i, dim=1)
+            h_outputs_stock_i = h_outputs[i]
+            h_outputs_temp = h_outputs.copy()
+            h_outputs_temp.pop(i)
+            h_outputs_without_i_tensor = torch.vstack(h_outputs_temp)
             # create a vector with h_outputs for stock i and mean of stocks i+1,i+2...in
-            f_input_i = [h_outputs[i], torch.mean(h_outputs_without_i_tensor)]
-            f_input_i = torch.cat(f_input_i, dim=1)
+            f_input_i = [h_outputs_stock_i, torch.mean(h_outputs_without_i_tensor, 0, True)]
+            f_input_i = torch.vstack(f_input_i)
+            #print(f_input_i)
             f_input_i = torch.flatten(f_input_i)
             # pass through network of size f_number
             f_input_i = self.linear_f(f_input_i)  #row of num_actions for each stock entry in the Q table
             f_input_i = self.activation(f_input_i)
             f_outputs.append(f_input_i)
 
-        x = torch.cat(f_outputs, dim=1)
-        x = torch.flatten(x)
+        x = torch.vstack(f_outputs)
         #  final flattened output of size (num_stocks x num_actions)
+        x = torch.flatten(x)
+
         return x
 
 class Agent(Portfolio):
@@ -134,6 +137,7 @@ class Agent(Portfolio):
 
         self.num_stocks = num_stocks
         self.num_actions = len(actions_dict)
+        self.actions_dict = actions_dict
         self.actions_dict = actions_dict
         self.gamma = gamma
         self.epsilon = epsilon
@@ -173,8 +177,9 @@ class Agent(Portfolio):
 
         options = self.model(state)
 
-        # returns (action_stock1, action_stock2, action_stock3)
-        return np.argmax(options[0])
+        action_index = torch.argmax(options).cpu()
+
+        return action_index
 
     def expReplay(self, epoch):
         # retrieve recent buffer_size long memory
@@ -226,7 +231,7 @@ class Agent(Portfolio):
                 self.epsilon *= self.epsilon_decay
 
     # uses defined transaction actions based on action index
-    def execute_action(self, action_index, close_price_stock_i, stock_i, h, data):
+    def execute_action(self, action_index, close_price_stock_i, stock_i, h):
         # action_dictionary = {
         #     0: self.buy_0_1,
         #     1: self.buy_0_25,
@@ -244,7 +249,7 @@ class Agent(Portfolio):
         # }
 
         # execute the action method based on action_dictionary:
-        next_portfolio_state, reward = self.action_dictionary.get(action_index, lambda: 'Invalid callable action')(stock_i, h)
+        next_portfolio_state, reward = self.actions_dict.get(action_index, lambda: 'Invalid callable action')(close_price_stock_i, stock_i, h)
         return  next_portfolio_state, reward
 
     def buy_0_1(self, close_price_stock_i, stock_i, h):

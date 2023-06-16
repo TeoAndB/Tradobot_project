@@ -78,15 +78,17 @@ def main(input_filepath, output_filepath):
 
             action_index = agent.act(state)
 
-            if action_index > agent.num_actions: #action space for a single stock
-                action_index_for_stock_i = action_index/agent.num_stocks
-            else:
-                action_index_for_stock_i = action_index
+            for i in range(agent.num_stocks):
+                if action_index > i * agent.num_actions: #action space for a single stock
+                    action_index_for_stock_i = action_index - i * agent.num_stocks
+                else:
+                    action_index_for_stock_i = action_index
 
-            stock_i = action_index % agent.num_actions #find which stock the actoon is performed for
+            stock_i = int(action_index // agent.num_actions) #find which stock the actoon is performed for
 
             # take action a, observe reward and next_state
-            reward = agent.execute_action(action_index_for_stock_i, ACTIONS_DICTIONARY, stock_i, h)
+            close_price_stock_i = data_window.loc[stock_i,'close']
+            reward = agent.execute_action(action_index_for_stock_i, close_price_stock_i, stock_i, h)
 
             # add close prices, tickers and agent's memory step to explainability DataFrame
 
