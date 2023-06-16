@@ -37,7 +37,10 @@ def main(input_filepath, output_filepath):
 
     agent = Agent(num_stocks=NUM_STOCKS, actions_dict=ACTIONS_DICTIONARY, num_features=num_features, balance=INITIAL_AMOUNT,
                   gamma=GAMMA, epsilon=EPSILON, epsilon_min=EPSILON_MIN,
-                  epsilon_decay=EPSILON_DECAY, learning_rate=LEARNING_RATE, batch_size=BATCH_SIZE)
+                  epsilon_decay=EPSILON_DECAY, learning_rate=LEARNING_RATE, batch_size=BATCH_SIZE, tau=TAU)
+
+    action_index_arr_mask = np.arange(0, agent.num_actions * agent.num_stocks, 1, dtype=int).reshape(agent.num_stocks,
+                                                                                                     agent.num_actions)
 
     l = len(data)-1
 
@@ -71,6 +74,10 @@ def main(input_filepath, output_filepath):
 
             date_index = unique_dates[t]
             data_window = data.loc[(data['date'] == unique_dates[t])]
+
+            # replace NaN values with 0.0
+            data_window = data_window.fillna(0)
+
             if t > 0:
                 prev_closing_prices = data.loc[(data['date'] == unique_dates[t-1])]['close'].tolist()
 
@@ -78,22 +85,24 @@ def main(input_filepath, output_filepath):
 
             action_index = agent.act(state)
 
-            for i in range(agent.num_stocks):
-                if action_index > i * agent.num_actions: #action space for a single stock
-                    action_index_for_stock_i = action_index - i * agent.num_stocks
-                else:
-                    action_index_for_stock_i = action_index
+            # Find the indeces (stock_i, action_index_for_stock_i) where action_index  is present in action_index_arr_mask
+            indices = np.where(action_index_arr_mask == action_index)
+            stock_i, action_index_for_stock_i = map(int, indices)
 
-            stock_i = int(action_index // agent.num_actions) #find which stock the actoon is performed for
+            print(f'action_index is {action_index}')
+            print(f'stock_i is {stock_i}')
+            print(f'action_index_for_stock_i is {action_index_for_stock_i}')
+            print(f'type of action_idx_for_stock_i is {type(action_index_for_stock_i)}')
 
             # take action a, observe reward and next_state
-            close_price_stock_i = data_window.loc[stock_i,'close']
+            close_price_stock_i = data_window['close'].iloc[stock_i]
+
             reward = agent.execute_action(action_index_for_stock_i, close_price_stock_i, stock_i, h)
 
             # add close prices, tickers and agent's memory step to explainability DataFrame
 
             # Next state should append the t+1 data and portfolio_state. It also updates the position of agent portfolio based on agent position
-            next_state, agent = getState(data, t+1, prev_closing_prices, agent)
+            next_state, agent = getState(data_window, t+1, prev_closing_prices, agent)
 
             done = True if l==l-1 else False
             agent.remember(state=state, actions=(action_index_for_stock_i,stock_i, h), reward=reward, next_state=next_state, done=done)
@@ -103,7 +112,7 @@ def main(input_filepath, output_filepath):
             if len(agent.memory) > agent.batch_size:
                 agent.expReplay(e) # will also save the model on the last epoch
                 loss_history.extend(agent.batch_loss_history)
-                epoch_numbers_history.extent(agent.epoch_numbers)
+                epoch_numbers_history.extend(agent.epoch_numbers)
 
         print(loss_history)
 

@@ -40,9 +40,9 @@ def getState(data_window, t, prev_closing_prices, agent):
         for i in range(data_window.shape[0]): # iterate for each stock
             # no of shares for each stock: position/prev_closing_price * current closing price
             no_shares = agent.portfolio_state[1,i]/float(prev_closing_prices[i])
-            agent.porfolio_state[1,i] = no_shares * closing_prices[i]
+            agent.portfolio_state[1,i] = no_shares * closing_prices[i]
 
-        portfolio_arr = agent.porfolio_state.T
+        portfolio_arr = agent.portfolio_state.T
         state = np.column_stack((data_window_arr, portfolio_arr)).astype(np.float64)
 
     return state, agent
@@ -50,22 +50,24 @@ def getState(data_window, t, prev_closing_prices, agent):
 
 class Portfolio:
     def __init__(self, num_stocks, balance):
-        self.initial_total_balance = [balance] * num_stocks # pos in stocks + cash left
+        self.initial_total_balance = float(balance)
+        self.initial_total_balances = [float(balance)] * num_stocks # pos in stocks + cash left
         self.initial_position_stocks = [0.0]*num_stocks
         self.initial_position_portfolio = [0.0]*num_stocks
         self.initial_daily_return_stock = [0.0] * num_stocks
         self.initial_daily_return_total = [0.0] * num_stocks
-        self.initial_cash_left = [balance] * num_stocks
+        self.initial_cash_left = [float(balance)] * num_stocks
         self.initial_percentage_positions = [0.0] * num_stocks # liquid cash is included
 
-        self.initial_portfolio_state = np.array([self.initial_total_balance,self.initial_position_stocks,
+        self.initial_portfolio_state = np.array([self.initial_total_balances,self.initial_position_stocks,
                                                  self.initial_position_portfolio,
                                                  self.initial_daily_return_stock, self.initial_daily_return_total,
                                                  self.initial_cash_left, self.initial_percentage_positions])
 
 
         # subject to change while the agent explores
-        self.total_balance = [balance] * num_stocks  # pos in stocks + cash left
+        self.total_balance = float(balance)
+        self.total_balances = [float(balance)] * num_stocks  # pos in stocks + cash left
         self.position_stocks = [0.0]*num_stocks
 
 
@@ -73,9 +75,9 @@ class Portfolio:
         self.daily_return_stock = [0.0]*num_stocks
         self.daily_return_total = [0.0] * num_stocks
         self.percentage_positions = [0.0] * num_stocks # liquid cash is not included
-        self.cash_left = [balance] * num_stocks
+        self.cash_left = [float(balance)] * num_stocks
 
-        self.portfolio_state = np.asarray([self.total_balance,self.position_stocks,self.position_portfolio,
+        self.portfolio_state = np.asarray([self.total_balances,self.position_stocks,self.position_portfolio,
                                              self.daily_return_stock,self.daily_return_total,
                                              self.cash_left, self.percentage_positions])
 
@@ -103,7 +105,10 @@ class DQNNetwork(nn.Module):
         f_outputs = []
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         print(f' Model running is on {device}')
-        x = torch.from_numpy(x[0]).to(device)
+        if type(x)== tuple:
+            x = torch.from_numpy(x[0]).to(device)
+        else:
+            x = torch.from_numpy(x).to(device)
         for i in range(self.num_stocks):
             x_i = x[i,:].float()
             x_i = self.linear_h(x_i)
@@ -132,7 +137,7 @@ class DQNNetwork(nn.Module):
 
 class Agent(Portfolio):
     def __init__(self, num_stocks, actions_dict, num_features, balance, gamma=0.99, epsilon=1.0, epsilon_min=0.01,
-                 epsilon_decay=0.9999, learning_rate=0.001, batch_size=32):
+                 epsilon_decay=0.9999, learning_rate=0.001, batch_size=32, tau=1e-3):
         super().__init__(balance=balance, num_stocks=num_stocks)
 
         self.num_stocks = num_stocks
@@ -140,6 +145,7 @@ class Agent(Portfolio):
         self.actions_dict = actions_dict
         self.actions_dict = actions_dict
         self.gamma = gamma
+        self.tau = tau # Q network target update
         self.epsilon = epsilon
         self.epsilon_min = epsilon_min
         self.epsilon_decay = epsilon_decay
@@ -155,13 +161,12 @@ class Agent(Portfolio):
         self.num_features_total = self.num_features_from_data + self.portfolio_state.shape[0]
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model = DQNNetwork(num_stocks, self.num_actions, self.num_features_total).to(self.device).float()
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.learning_rate)
+        self.Q_network = DQNNetwork(num_stocks, self.num_actions, self.num_features_total).to(self.device).float()
+        self.Q_network_val = DQNNetwork(num_stocks, self.num_actions, self.num_features_total).to(self.device).float()
+
+        self.optimizer = torch.optim.Adam(self.Q_network.parameters(), lr=self.learning_rate)
 
         self.loss_fn = torch.nn.MSELoss()
-
-        # Initialize Q-table to zeros
-        self.Q_table = np.zeros((num_stocks, self.num_actions))
 
     def remember(self, state, actions, reward, next_state, done):
         self.memory.append((state, actions, reward, next_state, done))
@@ -171,13 +176,13 @@ class Agent(Portfolio):
         self.epsilon = 1.0 # reset exploration rate
 
     def act(self, state):
-        if not self.model.training and np.random.rand() <= self.epsilon:
+        if not self.Q_network.training and np.random.rand() <= self.epsilon:
             return random.randrange(self.num_actions*self.num_stocks)
             logging.info(f" exploration stage.")
 
-        options = self.model(state)
+        options = self.Q_network(state)
 
-        action_index = torch.argmax(options).cpu()
+        action_index = torch.argmax(options).cpu().item()
 
         return action_index
 
@@ -190,22 +195,25 @@ class Agent(Portfolio):
 
         for state, actions, reward, next_state, done in mini_batch:
 
-            state_tensor = torch.tensor(state).unsqueeze(0)
-            next_state_tensor = torch.tensor(next_state).unsqueeze(0)
-
             if not done:
-                Q_target_value = reward + self.gamma * torch.max(self.model.forward(next_state_tensor))
+                self.Q_network_val.eval()
+                with torch.no_grad():
+                    value = torch.max(self.Q_network_val.forward(next_state)).item()
+                    target_rewards = reward + self.gamma * torch.max(self.Q_network_val.forward(next_state)).item()
             else:
-                Q_target_value = reward
+                target_rewards = reward
 
-            next_actions = self.model(state_tensor)
-            next_actions[0][actions.argmax()] = Q_target_value
+            self.Q_network.train()
+            expected_rewards = torch.max(self.Q_network.forward(state)).item()
 
-            loss = F.mse_loss(next_actions, self.model(state_tensor))
+            print(f'traget_rewards is {target_rewards}')
+            print(f'expected_rewards is {expected_rewards}')
+
+            # CHANGE TO MAKE VECTOR?
+            loss = F.mse_loss(expected_rewards, target_rewards)
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
-            self.optimizer.zero_grad()
 
             running_loss += loss.item()
 
@@ -225,32 +233,43 @@ class Agent(Portfolio):
 
                 # Format the date as a readable string
                 date_string = current_date.strftime("%d_%m_%Y")
-                torch.save(self.model.state_dict(), f'./models/trained_agent_{date_string}.pt')
+                torch.save(self.Q_network.state_dict(), f'./models/trained_agent_{date_string}.pt')
 
             if self.epsilon > self.epsilon_min:
                 self.epsilon *= self.epsilon_decay
 
-    # uses defined transaction actions based on action index
-    def execute_action(self, action_index, close_price_stock_i, stock_i, h):
-        # action_dictionary = {
-        #     0: self.buy_0_1,
-        #     1: self.buy_0_25,
-        #     2: self.buy_0_50,
-        #     3: self.buy_0_75,
-        #     4: self.buy_1,
-        #     5: self.sell_0_1,
-        #     6: self.sell_0_25,
-        #     7: self.sell_0_50,
-        #     8: self.sell_0_75,
-        #     9: self.sell_1,
-        #     10: self.hold,
-        #     11: self.sell_everything,
-        #     12: self.buy_1_share
-        # }
+        # update at the end of batch Q_network_val using tau
+        for Q_network_val_parameters, Q_network_parameters in zip(self.Q_network_val.parameters(),
+                                                                  self.Q_network.parameters()):
+            Q_network_val_parameters.data.copy_(
+                self.tau * Q_network_parameters.data + (1.0 - self.tau) * Q_network_val_parameters.data)
 
-        # execute the action method based on action_dictionary:
-        next_portfolio_state, reward = self.actions_dict.get(action_index, lambda: 'Invalid callable action')(close_price_stock_i, stock_i, h)
-        return  next_portfolio_state, reward
+    def execute_action(self, action_index_for_stock_i, close_price_stock_i, stock_i, h):
+        action_dictionary = {
+            0: self.buy_0_1,
+            1: self.buy_0_25,
+            2: self.buy_0_50,
+            3: self.buy_0_75,
+            4: self.buy_1,
+            5: self.sell_0_1,
+            6: self.sell_0_25,
+            7: self.sell_0_50,
+            8: self.sell_0_75,
+            9: self.sell_1,
+            10: self.hold,
+            11: self.sell_everything,
+            12: self.buy_1_share
+        }
+        selected_function = action_dictionary.get(action_index_for_stock_i)
+        if selected_function is not None:
+            # Call the selected function with the provided arguments
+            reward = selected_function(close_price_stock_i, stock_i, h)
+            # Process the result if needed
+        else:
+            # Handle the case when action_index_for_stock_i is not found in the dictionary
+            reward = "Invalid action index"
+
+        return reward
 
     def buy_0_1(self, close_price_stock_i, stock_i, h):
         '''
@@ -276,7 +295,7 @@ class Agent(Portfolio):
         prev_position_stock = self.portfolio_state[1,stock_i]
 
         # store prev portfolio position # we can take the first element since it is the same value for the whole row
-        prev_position_portfolio = self.position_portfolio[2,0]
+        prev_position_portfolio = self.portfolio_state[2,0]
 
         # change the value of (cash) position stock_i
         buy_amount_stock_i = 0.1 * h* close_price_stock_i
@@ -300,7 +319,7 @@ class Agent(Portfolio):
 
         # update total balance: position plus cash left
         for i in range(self.portfolio_state.shape[1]):
-            self.total_balance[0,i] = self.portfolio_state[2,0] + self.portfolio_state[4,0]
+            self.portfolio_state[0,i] = self.portfolio_state[2,0] + self.portfolio_state[4,0]
 
         # update percentage of stock position: position stock/total balance
         self.portfolio_state[6, :] = self.portfolio_state[1,:]/self.portfolio_state[0,:]
@@ -331,7 +350,7 @@ class Agent(Portfolio):
         prev_position_stock = self.portfolio_state[1,stock_i]
 
         # store prev portfolio position # we can take the first element since it is the same value for the whole row
-        prev_position_portfolio = self.position_portfolio[2,0]
+        prev_position_portfolio = self.portfolio_state[2,0]
 
         # change the value of (cash) position stock_i
         buy_amount_stock_i = 0.25 * h* close_price_stock_i
@@ -355,7 +374,7 @@ class Agent(Portfolio):
 
         # update total balance: position plus cash left
         for i in range(self.portfolio_state.shape[1]):
-            self.total_balance[0,i] = self.portfolio_state[2,0] + self.portfolio_state[4,0]
+            self.portfolio_state[0,i] = self.portfolio_state[2,0] + self.portfolio_state[4,0]
 
         # update percentage of stock position: position stock/total balance
         self.portfolio_state[6, :] = self.portfolio_state[1,:]/self.portfolio_state[0,:]
@@ -384,7 +403,8 @@ class Agent(Portfolio):
         prev_position_stock = self.portfolio_state[1,stock_i]
 
         # store prev portfolio position # we can take the first element since it is the same value for the whole row
-        prev_position_portfolio = self.position_portfolio[2,0]
+
+        prev_position_portfolio = self.portfolio_state[2,0]
 
         # change the value of (cash) position stock_i
         buy_amount_stock_i = 0.5 * h* close_price_stock_i
@@ -408,7 +428,7 @@ class Agent(Portfolio):
 
         # update total balance: position plus cash left
         for i in range(self.portfolio_state.shape[1]):
-            self.total_balance[0,i] = self.portfolio_state[2,0] + self.portfolio_state[4,0]
+            self.portfolio_state[0,i] = self.portfolio_state[2,0] + self.portfolio_state[4,0]
 
         # update percentage of stock position: position stock/total balance
         self.portfolio_state[6, :] = self.portfolio_state[1,:]/self.portfolio_state[0,:]
@@ -437,7 +457,7 @@ class Agent(Portfolio):
         prev_position_stock = self.portfolio_state[1,stock_i]
 
         # store prev portfolio position # we can take the first element since it is the same value for the whole row
-        prev_position_portfolio = self.position_portfolio[2,0]
+        prev_position_portfolio = self.portfolio_state[2,0]
 
         # change the value of (cash) position stock_i
         buy_amount_stock_i = 0.75 * h* close_price_stock_i
@@ -461,7 +481,7 @@ class Agent(Portfolio):
 
         # update total balance: position plus cash left
         for i in range(self.portfolio_state.shape[1]):
-            self.total_balance[0,i] = self.portfolio_state[2,0] + self.portfolio_state[4,0]
+            self.portfolio_state[0,i] = self.portfolio_state[2,0] + self.portfolio_state[4,0]
 
         # update percentage of stock position: position stock/total balance
         self.portfolio_state[6, :] = self.portfolio_state[1,:]/self.portfolio_state[0,:]
@@ -490,7 +510,7 @@ class Agent(Portfolio):
         prev_position_stock = self.portfolio_state[1,stock_i]
 
         # store prev portfolio position # we can take the first element since it is the same value for the whole row
-        prev_position_portfolio = self.position_portfolio[2,0]
+        prev_position_portfolio = self.portfolio_state[2,0]
 
         # change the value of (cash) position stock_i
         buy_amount_stock_i = 1 * h* close_price_stock_i
@@ -514,7 +534,7 @@ class Agent(Portfolio):
 
         # update total balance: position plus cash left
         for i in range(self.portfolio_state.shape[1]):
-            self.total_balance[0,i] = self.portfolio_state[2,0] + self.portfolio_state[4,0]
+            self.portfolio_state[0,i] = self.portfolio_state[2,0] + self.portfolio_state[4,0]
 
         # update percentage of stock position: position stock/total balance
         self.portfolio_state[6, :] = self.portfolio_state[1,:]/self.portfolio_state[0,:]
@@ -543,7 +563,7 @@ class Agent(Portfolio):
         prev_position_stock = self.portfolio_state[1,stock_i]
 
         # store prev portfolio position # we can take the first element since it is the same value for the whole row
-        prev_position_portfolio = self.position_portfolio[2,0]
+        prev_position_portfolio = self.portfolio_state[2,0]
 
         # change the value of (cash) position stock_i
         sell_amount_stock_i = 0.01 * h* close_price_stock_i
@@ -567,7 +587,7 @@ class Agent(Portfolio):
 
         # update total balance: position plus cash left
         for i in range(self.portfolio_state.shape[1]):
-            self.total_balance[0,i] = self.portfolio_state[2,0] + self.portfolio_state[4,0]
+            self.portfolio_state[0,i] = self.portfolio_state[2,0] + self.portfolio_state[4,0]
 
         # update percentage of stock position: position stock/total balance
         self.portfolio_state[6, :] = self.portfolio_state[1,:]/self.portfolio_state[0,:]
@@ -597,7 +617,7 @@ class Agent(Portfolio):
         prev_position_stock = self.portfolio_state[1,stock_i]
 
         # store prev portfolio position # we can take the first element since it is the same value for the whole row
-        prev_position_portfolio = self.position_portfolio[2,0]
+        prev_position_portfolio = self.portfolio_state[2,0]
 
         # change the value of (cash) position stock_i
         sell_amount_stock_i = 0.25 * h* close_price_stock_i
@@ -621,7 +641,7 @@ class Agent(Portfolio):
 
         # update total balance: position plus cash left
         for i in range(self.portfolio_state.shape[1]):
-            self.total_balance[0,i] = self.portfolio_state[2,0] + self.portfolio_state[4,0]
+            self.portfolio_state[0,i] = self.portfolio_state[2,0] + self.portfolio_state[4,0]
 
         # update percentage of stock position: position stock/total balance
         self.portfolio_state[6, :] = self.portfolio_state[1,:]/self.portfolio_state[0,:]
@@ -650,7 +670,7 @@ class Agent(Portfolio):
         prev_position_stock = self.portfolio_state[1,stock_i]
 
         # store prev portfolio position # we can take the first element since it is the same value for the whole row
-        prev_position_portfolio = self.position_portfolio[2,0]
+        prev_position_portfolio = self.portfolio_state[2,0]
 
         # change the value of (cash) position stock_i
         sell_amount_stock_i = 0.5 * h* close_price_stock_i
@@ -674,7 +694,7 @@ class Agent(Portfolio):
 
         # update total balance: position plus cash left
         for i in range(self.portfolio_state.shape[1]):
-            self.total_balance[0,i] = self.portfolio_state[2,0] + self.portfolio_state[4,0]
+            self.portfolio_state[0,i] = self.portfolio_state[2,0] + self.portfolio_state[4,0]
 
         # update percentage of stock position: position stock/total balance
         self.portfolio_state[6, :] = self.portfolio_state[1,:]/self.portfolio_state[0,:]
@@ -703,7 +723,7 @@ class Agent(Portfolio):
         prev_position_stock = self.portfolio_state[1,stock_i]
 
         # store prev portfolio position # we can take the first element since it is the same value for the whole row
-        prev_position_portfolio = self.position_portfolio[2,0]
+        prev_position_portfolio = self.portfolio_state[2,0]
 
         # change the value of (cash) position stock_i
         sell_amount_stock_i = 0.75 * h* close_price_stock_i
@@ -727,7 +747,7 @@ class Agent(Portfolio):
 
         # update total balance: position plus cash left
         for i in range(self.portfolio_state.shape[1]):
-            self.total_balance[0,i] = self.portfolio_state[2,0] + self.portfolio_state[4,0]
+            self.portfolio_state[0,i] = self.portfolio_state[2,0] + self.portfolio_state[4,0]
 
         # update percentage of stock position: position stock/total balance
         self.portfolio_state[6, :] = self.portfolio_state[1,:]/self.portfolio_state[0,:]
@@ -756,7 +776,7 @@ class Agent(Portfolio):
         prev_position_stock = self.portfolio_state[1,stock_i]
 
         # store prev portfolio position # we can take the first element since it is the same value for the whole row
-        prev_position_portfolio = self.position_portfolio[2,0]
+        prev_position_portfolio = self.portfolio_state[2,0]
 
         # change the value of (cash) position stock_i
         sell_amount_stock_i = 1 * h* close_price_stock_i
@@ -780,7 +800,7 @@ class Agent(Portfolio):
 
         # update total balance: position plus cash left
         for i in range(self.portfolio_state.shape[1]):
-            self.total_balance[0,i] = self.portfolio_state[2,0] + self.portfolio_state[4,0]
+            self.portfolio_state[0,i] = self.portfolio_state[2,0] + self.portfolio_state[4,0]
 
         # update percentage of stock position: position stock/total balance
         self.portfolio_state[6, :] = self.portfolio_state[1,:]/self.portfolio_state[0,:]
@@ -795,7 +815,7 @@ class Agent(Portfolio):
 
         return reward
 
-    def sell_everything(self, pos_portfolio_prev, close_price_stock_i, stock_i, h):
+    def sell_everything(self, close_price_stock_i, stock_i, h):
         # self.portfolio_state = np.array([self.total_balance,self.position_stocks,self.position_portfolio,
         #                                  self.daily_return_stock,self.daily_return_total,
         #                                  self.cash_left, self.percentage_positions])
@@ -817,17 +837,17 @@ class Agent(Portfolio):
 
         # update total balance: position plus cash left
         for i in range(self.portfolio_state.shape[1]):
-            self.total_balance[0, i] = balance_sold
+            self.portfolio_state[0, i] = balance_sold
 
         # update cash left balance:
         for i in range(self.portfolio_state.shape[1]):
-            self.total_balance[5, i] = balance_sold
+            self.portfolio_state[5, i] = balance_sold
 
         reward = 0
 
         return reward
 
-    def buy_1share(self, pos_portfolio_prev, close_price_stock_i, stock_i, h):
+    def buy_1_share(self, close_price_stock_i, stock_i, h):
         # self.portfolio_state = np.array([self.total_balance,self.position_stocks,self.position_portfolio,
         #                                  self.daily_return_stock,self.daily_return_total,
         #                                  self.cash_left, self.percentage_positions])
@@ -846,7 +866,7 @@ class Agent(Portfolio):
         prev_position_stock = self.portfolio_state[1, stock_i]
 
         # store prev portfolio position # we can take the first element since it is the same value for the whole row
-        prev_position_portfolio = self.position_portfolio[2, 0]
+        prev_position_portfolio = self.portfolio_state[2, 0]
 
         # change the value of (cash) position stock_i
         buy_amount_stock_i = close_price_stock_i
@@ -869,7 +889,7 @@ class Agent(Portfolio):
 
         # update total balance: position plus cash left
         for i in range(self.portfolio_state.shape[1]):
-            self.total_balance[0, i] = self.portfolio_state[2, 0] + self.portfolio_state[4, 0]
+            self.portfolio_state[0, i] = self.portfolio_state[2, 0] + self.portfolio_state[4, 0]
 
         # update percentage of stock position: position stock/total balance
         self.portfolio_state[6, :] = self.portfolio_state[1, :] / self.portfolio_state[0, :]
@@ -879,8 +899,6 @@ class Agent(Portfolio):
 
         return reward
 
-    def default(self, pos_portfolio_prev, close_price_stock_i, stock_i, h):
-        print("Invalid action")
 
 #############################################################333333
     # def act(self, state):
@@ -898,7 +916,7 @@ class Agent(Portfolio):
     #     target_Q = torch.tensor(target_Q, dtype=torch.float32).to(self.device)
     #     state = torch.tensor(state, dtype=torch.float32).to(self.device)
     #     action = torch.tensor(action, dtype=torch.int64).unsqueeze(0).to(self.device)
-    #     q_values = self.model(state)
+    #     q_values = self.Q_network(state)
     #     q_value = q_values.gather(1, action).squeeze(1)
     #     loss = self.loss_fn(q_value, target_Q)
     #     self.optimizer.zero_grad()
