@@ -4,7 +4,7 @@ from src.config_data import *
 
 # CHANGE HERE
 # predefined parameter that sets as the maximum amount of shares to trade.
-hmax = 1
+hmax = 100
 # liquid cash deposit
 INITIAL_AMOUNT = 1000000
 
@@ -31,7 +31,7 @@ EPSILON = 1.0
 EPSILON_MIN = 0.01
 EPSILON_DECAY = 0.9999
 LEARNING_RATE = 0.001
-BATCH_SIZE = 32
+BATCH_SIZE = 68
 TAU = 1e-3
 
 
