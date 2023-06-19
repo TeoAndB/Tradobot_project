@@ -529,3 +529,11 @@ target/
 /models/PPO_10k_8400.zip
 /models/PPO_10k_9100.zip
 /models/PPO_10k_9800.zip
+/reports/figures/DQN_training_loss_and_profits_for_dataset_1Min_AMZN-MSFT-SPY.csv_19_06_2023.png
+/reports/figures/DQN_training_loss_plot_16_06_2023.png
+/models/trained_agent_16_06_2023.pt
+/models/trained_agent_19_06_2023.pt
+/models/trained_DQN-model_for_dataset_1Min_AMZN-MSFT-SPY.csv_19_06_2023
+/models/trained_DQN-model_for_dataset_1Min_AMZN-MSFT-SPY.csv_19_06_2023.pth
+/reports/figures/training_loss_and_profits_16_06_2023.png
+/reports/figures/training_loss_and_profits_19_06_2023.png

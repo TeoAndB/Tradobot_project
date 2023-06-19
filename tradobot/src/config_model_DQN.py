@@ -4,7 +4,7 @@ from src.config_data import *
 
 # CHANGE HERE
 # predefined parameter that sets as the maximum amount of shares to trade.
-hmax = 100
+hmax = 500
 # liquid cash deposit
 INITIAL_AMOUNT = 1000000
 
@@ -18,7 +18,7 @@ sell_cost_pct = 0.001
 
 
 # DATA PARAMETERS ####################################################
-TRAIN_DATASET = "dataset_1Min_AMZN-MSFT-SPY.csv"
+DATASET = "dataset_1Min_AMZN-MSFT-SPY.csv"
 DATASET_INDEX = 1
 NUM_STOCKS = 3
 
@@ -31,6 +31,7 @@ EPSILON = 1.0
 EPSILON_MIN = 0.01
 EPSILON_DECAY = 0.9999
 LEARNING_RATE = 0.001
+# BATCH_SIZE = 32
 BATCH_SIZE = 68
 TAU = 1e-3
 
