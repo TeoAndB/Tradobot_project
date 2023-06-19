@@ -17,6 +17,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import torch
 import numpy as np
+import sklearn
+from sklearn.model_selection import train_test_split
 
 
 @click.command()
@@ -27,7 +29,32 @@ def main(input_filepath, output_filepath):
     """
     logger = logging.getLogger(__name__)
 
-    data = pd.read_csv(f'{input_filepath}/{DATASET}')[:201]
+    data = pd.read_csv(f'{input_filepath}/{DATASET}')[:21708]
+    data['date'] = pd.to_datetime(data['date'])
+
+    # Set the seed for reproducibility
+    random_seed = 42
+    # using unique dates for splitting (not timestamps)
+    unique_dates_days = pd.to_datetime(data['date']).dt.date.unique().tolist()
+
+    print(f'Len of unique_dates_days is {len(unique_dates_days)}')
+
+    # Split unique_dates_days into train, validation, and test sets
+    train_dates, remaining_dates = train_test_split(unique_dates_days, test_size=0.25, random_state=random_seed)
+    validation_dates, test_dates = train_test_split(remaining_dates, test_size=0.4, random_state=random_seed)
+
+    # Create the train, validation, and test DataFrames based on the selected dates
+    train_data = data[data['date'].dt.date.isin(train_dates)]
+    validation_data = data[data['date'].dt.date.isin(validation_dates)]
+    test_data = data[data['date'].dt.date.isin(test_dates)]
+
+
+    # for explainability
+    protfolio_state_rows = ['total_balance','position_per_stock','position_portfolio',
+                            'daily_return_per_stock','daily_return_portfolio','cash_left',
+                            'percentage_position_stock','shares_per_stock']
+
+
     print(f'Training on dataset: {input_filepath}/{DATASET}')
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -36,34 +63,35 @@ def main(input_filepath, output_filepath):
 
     num_features = len(data.columns) + len(data.tic.unique()) - 1 #data_window after being preprocessed with one hot encoding
 
+    cols_stocks = data['tic'].unique().tolist()
+
     agent = Agent(num_stocks=NUM_STOCKS, actions_dict=ACTIONS_DICTIONARY, h=h, num_features=num_features, balance=INITIAL_AMOUNT,
                   gamma=GAMMA, epsilon=EPSILON, epsilon_min=EPSILON_MIN,
                   epsilon_decay=EPSILON_DECAY, learning_rate=LEARNING_RATE, batch_size=BATCH_SIZE, tau=TAU, num_epochs=NUM_EPOCHS)
 
     action_index_arr_mask = np.arange(0, agent.num_actions * agent.num_stocks, 1, dtype=int).reshape(agent.num_stocks,
                                                                                                      agent.num_actions)
-    unique_dates = data['date'].unique()
-    cols_stocks = data['tic'].unique().tolist()
 
-    l = len(unique_dates)-1
+    # TRAINING #############################################################################
+    unique_dates_training = train_data['date'].unique()
 
-    loss_history = []
-    loss_history_per_epoch = [] # will populate with: [(l1,epoch1),(l2,e1),..(l1,e_n),(l2,e_n)]
-    epoch_numbers_history = []
-    cumulated_profits_list = [INITIAL_AMOUNT]
-    epoch_numbers_history_for_profits = [0]
 
-    protfolio_state_rows = ['total_balance','position_per_stock','position_portfolio',
-                            'daily_return_per_stock','daily_return_portfolio','cash_left',
-                            'percentage_position_stock','shares_per_stock']
+    train_loss_history = []
+    loss_hsitory_per_epoch_training = [] # will populate with: [(l1,epoch1),(l2,e1),..(l1,e_n),(l2,e_n)]
+    epoch_numbers_history_training = []
+    cumulates_profits_list_training = [INITIAL_AMOUNT]
+    epch_numbers_history_for_profits_training = [0]
+
+
+    l_training = len(unique_dates_training) - 1
 
     for e in range(agent.num_epochs):
         print(f'Epoch {e}')
 
         agent.reset()
 
-        date_index = unique_dates[0]
-        data_window = data.loc[(data['date'] == unique_dates[0])]
+        data_window = train_data.loc[(train_data['date'] == unique_dates_training[0])]
+        print(f'train_data is {train_data}')
 
         prev_closing_prices = data_window['close'].tolist()
 
@@ -77,17 +105,21 @@ def main(input_filepath, output_filepath):
         # initial_memory_step = np.stack([initial_dates, initial_closing_prices, agent.portfolio_state],axis=1)
 
 
+        t = 0
 
-        for t in range(l):
+        print(f'unique_dates_training is {unique_dates_training}')
+        for t in range(l_training):
 
-            date_index = unique_dates[t]
-            data_window = data.loc[(data['date'] == unique_dates[t])]
+            date_index = unique_dates_training[t]
+            data_window = train_data.loc[(train_data['date'] == unique_dates_training[t])]
 
             # replace NaN values with 0.0
             data_window = data_window.fillna(0)
 
+            #print(f'data_window is {data_window}')
+
             if t > 0:
-                prev_closing_prices = data.loc[(data['date'] == unique_dates[t-1])]['close'].tolist()
+                prev_closing_prices = train_data.loc[(data['date'] == unique_dates_training[t-1])]['close'].tolist()
 
             state = getState(data_window, t, agent)
 
@@ -108,7 +140,7 @@ def main(input_filepath, output_filepath):
             # Next state should append the t+1 data and portfolio_state. It also updates the position of agent portfolio based on agent position
             next_state, agent = getState(data_window, t+1, agent)
 
-            done = True if l==l-1 else False
+            done = True if l_training==l_training-1 else False
 
             agent.remember(state=state, actions=(action_index_for_stock_i, stock_i, h), closing_prices=closing_prices,
                            reward=reward, next_state=next_state, done=done)
@@ -119,12 +151,14 @@ def main(input_filepath, output_filepath):
                 agent.expReplay(e) # will also save the model on the last epoch
 
                 batch_loss_history = agent.batch_loss_history.copy()
-                loss_history.extend(batch_loss_history)
+                train_loss_history.extend(batch_loss_history)
 
 
-            if t%500 == 0 and len(loss_history)>0:
-                loss_per_epoch_log = sum(loss_history) / len(loss_history)
+            if l_training%500 == 0 and len(train_loss_history)>0:
+                loss_per_epoch_log = sum(train_loss_history) / len(train_loss_history)
                 print(f'Training Loss for Epoch {e}: {loss_per_epoch_log:.4f}')
+
+            l_training +=1
 
         current_date = datetime.datetime.now()
 
@@ -134,17 +168,17 @@ def main(input_filepath, output_filepath):
         #df_portfolio_state['info_row'] = protfolio_state_rows
         print(f'Portfolio state for epoch {e} is \n: {df_portfolio_state}')
 
-        if len(loss_history)>0:
+        if len(train_loss_history)>0:
             # track loss per epoch
-            loss_per_epoch = sum(loss_history) / len(loss_history)
+            loss_per_epoch = sum(train_loss_history) / len(train_loss_history)
             print(f'Training Loss for Epoch {e}: {loss_per_epoch:.4f}')
-            loss_history_per_epoch.append(loss_per_epoch)
-            epoch_numbers_history.append(e)
-            epoch_numbers_history_for_profits.append(e)
+            loss_hsitory_per_epoch_training.append(loss_per_epoch)
+            epoch_numbers_history_training.append(e)
+            epch_numbers_history_for_profits_training.append(e)
 
             # track cumulated profits
             cumulated_profit_per_epoch = agent.portfolio_state[0,0]
-            cumulated_profits_list.append(cumulated_profit_per_epoch)
+            cumulates_profits_list_training.append(cumulated_profit_per_epoch)
 
         # Format the date as a readable string
         date_string = current_date.strftime("%d_%m_%Y")
@@ -153,13 +187,13 @@ def main(input_filepath, output_filepath):
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
 
     # Plot for training loss
-    ax1.plot(epoch_numbers_history, loss_history_per_epoch)
+    ax1.plot(epoch_numbers_history_training, loss_hsitory_per_epoch_training)
     ax1.set_xlabel('Epoch')
     ax1.set_ylabel('Running Loss')
     ax1.set_title('Training Loss')
 
     # Plot for cumulative profits
-    ax2.plot(epoch_numbers_history_for_profits, cumulated_profits_list)
+    ax2.plot(epch_numbers_history_for_profits_training, cumulates_profits_list_training)
     ax2.set_xlabel('Epoch')
     ax2.set_ylabel('Cumulated Profits')
     ax2.set_title('Cumulated Profits during Training')

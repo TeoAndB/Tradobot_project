@@ -40,6 +40,7 @@ def maskActions(options, portfolio_state, num_stocks, num_actions, actions_dict,
 
     for stock_i in range(options_np.shape[0]):
         for action_idx in range(options_np.shape[1]):
+
             # normally buying options are not permitted if there is not enough cash left
             if 'buy_0_1' in actions_dict[action_idx] and 0.1 * h > portfolio_state[5, 0]:
                 options_np[stock_i, action_idx] = 0.0
@@ -64,7 +65,8 @@ def maskActions(options, portfolio_state, num_stocks, num_actions, actions_dict,
                 options_np[stock_i, action_idx] = 0.0
             if 'sell_1' in actions_dict[action_idx] and 1.0 * h > portfolio_state[1, stock_i]:
                 options_np[stock_i, action_idx] = 0.0
-
+            if 'sell' in actions_dict[action_idx] and (portfolio_state[1, stock_i]==0):
+                options_np[stock_i, action_idx] = 0.0
         options = torch.from_numpy(options_np)
         options = torch.flatten(options)
         options.requires_grad_(True)
