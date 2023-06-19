@@ -75,7 +75,6 @@ def main(input_filepath, output_filepath):
     # TRAINING #############################################################################
     unique_dates_training = train_data['date'].unique()
 
-
     train_loss_history = []
     loss_hsitory_per_epoch_training = [] # will populate with: [(l1,epoch1),(l2,e1),..(l1,e_n),(l2,e_n)]
     epoch_numbers_history_training = []
@@ -83,15 +82,12 @@ def main(input_filepath, output_filepath):
     epch_numbers_history_for_profits_training = [0]
 
 
-    l_training = len(unique_dates_training) - 1
-
     for e in range(agent.num_epochs):
         print(f'Epoch {e}')
 
         agent.reset()
 
         data_window = train_data.loc[(train_data['date'] == unique_dates_training[0])]
-        print(f'train_data is {train_data}')
 
         prev_closing_prices = data_window['close'].tolist()
 
@@ -104,13 +100,12 @@ def main(input_filepath, output_filepath):
         #
         # initial_memory_step = np.stack([initial_dates, initial_closing_prices, agent.portfolio_state],axis=1)
 
-
         t = 0
+        l_training = len(unique_dates_training)
 
-        print(f'unique_dates_training is {unique_dates_training}')
         for t in range(l_training):
+            curr_date_day = pd.to_datetime(unique_dates_training[t]).date()
 
-            date_index = unique_dates_training[t]
             data_window = train_data.loc[(train_data['date'] == unique_dates_training[t])]
 
             # replace NaN values with 0.0
@@ -119,6 +114,7 @@ def main(input_filepath, output_filepath):
             #print(f'data_window is {data_window}')
 
             if t > 0:
+                prev_date_day = pd.to_datetime(unique_dates_training[t-1]).date()
                 prev_closing_prices = train_data.loc[(data['date'] == unique_dates_training[t-1])]['close'].tolist()
 
             state = getState(data_window, t, agent)
@@ -140,7 +136,7 @@ def main(input_filepath, output_filepath):
             # Next state should append the t+1 data and portfolio_state. It also updates the position of agent portfolio based on agent position
             next_state, agent = getState(data_window, t+1, agent)
 
-            done = True if l_training==l_training-1 else False
+            done = True if t==l_training-1 else False
 
             agent.remember(state=state, actions=(action_index_for_stock_i, stock_i, h), closing_prices=closing_prices,
                            reward=reward, next_state=next_state, done=done)
@@ -154,11 +150,9 @@ def main(input_filepath, output_filepath):
                 train_loss_history.extend(batch_loss_history)
 
 
-            if l_training%500 == 0 and len(train_loss_history)>0:
+            if t%500 == 0 and len(train_loss_history)>0:
                 loss_per_epoch_log = sum(train_loss_history) / len(train_loss_history)
-                print(f'Training Loss for Epoch {e}: {loss_per_epoch_log:.4f}')
-
-            l_training +=1
+                print(f'Epoch {e}, Training Loss: {loss_per_epoch_log:.4f}')
 
         current_date = datetime.datetime.now()
 
