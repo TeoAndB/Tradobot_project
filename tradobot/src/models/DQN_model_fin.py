@@ -8,9 +8,69 @@ import random
 import datetime
 from datetime import datetime
 import pandas as pd
+import logging
 
 from src.config_model_DQN import INITIAL_AMOUNT
 
+def maskActions_evaluation(options, portfolio_state, num_stocks, num_actions, actions_dict, h, closing_prices, device):
+    '''
+    Function to mask/ disregard certain actions according to the portfolio of the agent.
+    Params:
+    options (troch.Tensor): (num_stocks x num_actions) tensor to be masked
+    '''
+
+    # actions_dict = {
+    #     0: 'buy_0_1',
+    #     1: 'buy_0_25',
+    #     2: 'buy_0_50',
+    #     3: 'buy_0_75',
+    #     4: 'buy_1',
+    #     5: 'sell_0_1',
+    #     6: 'sell_0_25',
+    #     7: 'sell_0_50',
+    #     8: 'sell_0_75',
+    #     9: 'sell_1',
+    #     10: 'hold',
+    #     11: 'sell_everything',
+    #     12: 'buy_1_share'
+    # }
+
+    options_np = options.detach().cpu().numpy().reshape(num_stocks, num_actions)
+
+    for stock_i in range(options_np.shape[0]):
+        for action_idx in range(options_np.shape[1]):
+
+            # normally buying options are not permitted if there is not enough cash left
+            if 'buy_0_1' in actions_dict[action_idx] and 0.1 * h > portfolio_state[5, 0]:
+                options_np[stock_i, action_idx] = 0.0
+            if 'buy_0_25' in actions_dict[action_idx] and 0.25 * h > portfolio_state[5, 0]:
+                options_np[stock_i, action_idx] = 0.0
+            if 'buy_50' in actions_dict[action_idx] and 0.5 * h > portfolio_state[5, 0]:
+                options_np[stock_i, action_idx] = 0.0
+            if 'buy_0_75' in actions_dict[action_idx] and 0.75 * h > portfolio_state[5, 0]:
+                options_np[stock_i, action_idx] = 0.0
+            if 'buy_1' in actions_dict[action_idx] and 1.0 * h > portfolio_state[5, 0]:
+                options_np[stock_i, action_idx] = 0.0
+            if 'buy_1_share' in actions_dict[action_idx] and closing_prices[stock_i] > portfolio_state[5, 0]:
+                options_np[stock_i, action_idx] = 0.0
+            # normally selling options are not permitted if the amount is nopt persent in the position for stock_i
+            if 'sell_0_1' in actions_dict[action_idx] and 0.1 * h > portfolio_state[1, stock_i]:
+                options_np[stock_i, action_idx] = 0.0
+            if 'sell_0_25' in actions_dict[action_idx] and 0.25 * h > portfolio_state[1, stock_i]:
+                options_np[stock_i, action_idx] = 0.0
+            if 'sell_0_50' in actions_dict[action_idx] and 0.5 * h > portfolio_state[1, stock_i]:
+                options_np[stock_i, action_idx] = 0.0
+            if 'sell_0_75' in actions_dict[action_idx] and 0.75 * h > portfolio_state[1, stock_i]:
+                options_np[stock_i, action_idx] = 0.0
+            if 'sell_1' in actions_dict[action_idx] and 1.0 * h > portfolio_state[1, stock_i]:
+                options_np[stock_i, action_idx] = 0.0
+            if 'sell' in actions_dict[action_idx] and (portfolio_state[1, stock_i] == 0):
+                options_np[stock_i, action_idx] = 0.0
+
+        options = torch.from_numpy(options_np)
+        options = torch.flatten(options)
+
+        return options
 
 def maskActions(options, portfolio_state, num_stocks, num_actions, actions_dict, h, closing_prices, device):
     '''
@@ -65,7 +125,7 @@ def maskActions(options, portfolio_state, num_stocks, num_actions, actions_dict,
                 options_np[stock_i, action_idx] = 0.0
             if 'sell_1' in actions_dict[action_idx] and 1.0 * h > portfolio_state[1, stock_i]:
                 options_np[stock_i, action_idx] = 0.0
-            if 'sell' in actions_dict[action_idx] and (portfolio_state[1, stock_i]==0):
+            if 'sell' in actions_dict[action_idx] and (portfolio_state[1, stock_i] == 0):
                 options_np[stock_i, action_idx] = 0.0
         options = torch.from_numpy(options_np)
         options = torch.flatten(options)
@@ -125,7 +185,7 @@ class Portfolio:
             self.initial_shares_per_stock = [0.0] * num_stocks
         else:
             self.initial_shares_per_stock = (
-                        np.array(self.initial_position_portfolio) / np.array(closing_prices)).tolist()
+                    np.array(self.initial_position_portfolio) / np.array(closing_prices)).tolist()
 
         self.initial_portfolio_state = np.array([self.initial_total_balances, self.initial_position_stocks,
                                                  self.initial_position_portfolio,
@@ -262,8 +322,15 @@ class Agent(Portfolio):
 
     def act(self, state, closing_prices):
         if not self.Q_network.training and np.random.rand() <= self.epsilon:
-            return random.randrange(self.num_actions * self.num_stocks)
+            random_options = torch.randint(low=0, high=self.num_stocks * self.num_actions,
+                                           size=(self.num_stocks, self.num_actions))
+            random_options = torch.flatten(random_options)
+            random_options_allowed = maskActions_evaluation(random_options, self.portfolio_state, self.num_stocks,
+                                                             self.num_actions,
+                                                             self.actions_dict, self.h, closing_prices, self.device)
+            action_index = torch.argmax(random_options_allowed).item()
             logging.info(f" exploration stage.")
+            return action_index
 
         options = maskActions(self.Q_network.forward(state), self.portfolio_state, self.num_stocks, self.num_actions,
                               self.actions_dict, self.h, closing_prices, self.device)
@@ -310,8 +377,6 @@ class Agent(Portfolio):
 
         avg_loss = running_loss / self.batch_size
         self.batch_loss_history.append(avg_loss)
-
-
 
         if self.epsilon > self.epsilon_min:
             self.epsilon *= self.epsilon_decay

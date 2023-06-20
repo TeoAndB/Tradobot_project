@@ -23,7 +23,8 @@ DATASET_INDEX = 1
 NUM_STOCKS = 3
 
 # DQN Params #####################
-NUM_EPOCHS = 10
+#NUM_EPOCHS = 10
+NUM_EPOCHS = 3
 
 
 GAMMA = 0.99

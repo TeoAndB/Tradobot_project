@@ -537,3 +537,7 @@ target/
 /models/trained_DQN-model_for_dataset_1Min_AMZN-MSFT-SPY.csv_19_06_2023.pth
 /reports/figures/training_loss_and_profits_16_06_2023.png
 /reports/figures/training_loss_and_profits_19_06_2023.png
+/reports/figures/DQN_training_loss_and_profits_for_dataset_1Min_AMZN-MSFT-SPY.csv_2023-06-20.png
+/models/trained_DQN-model_for_dataset_1Min_AMZN-MSFT-SPY.csv_2023-06-20.pth
+/reports/results_DQN/training_explainability_dataset_1Min_AMZN-MSFT-SPY.csv_2023-06-20.csv
+/reports/results_DQN/validation_explainability_dataset_1Min_AMZN-MSFT-SPY.csv_2023-06-20.csv
