@@ -230,6 +230,7 @@ class Portfolio:
 
     def reset_portfolio(self):
         self.portfolio_state = np.copy(self.initial_portfolio_state)
+        self.explainability_df = pd.DataFrame()
 
 
 class DQNNetwork(nn.Module):
@@ -325,6 +326,7 @@ class Agent(Portfolio):
     def remember(self, state, actions, closing_prices, reward, next_state, done):
         self.memory.append((state, actions, closing_prices, reward, next_state, done))
 
+
     def reset(self):
         self.reset_portfolio()
         self.epsilon = 1.0  # reset exploration rate
@@ -355,8 +357,6 @@ class Agent(Portfolio):
         mini_batch = [self.memory[i] for i in range(len(self.memory) - self.batch_size + 1, len(self.memory))]
 
         running_loss = 0.0
-        loss_history = []
-        i = 0
 
         for state, actions, closing_prices, reward, next_state, done in mini_batch:
 
@@ -376,7 +376,6 @@ class Agent(Portfolio):
 
             target_rewards = torch.tensor([target_rewards], dtype=torch.float).to(device)
 
-            # CHANGE TO MAKE VECTOR?
             loss = self.loss_fn(expected_rewards, target_rewards)
             self.optimizer.zero_grad()
             loss.backward()
@@ -391,6 +390,51 @@ class Agent(Portfolio):
             self.epsilon *= self.epsilon_decay
 
         # update at the end of batch Q_network_val using tau
+        for Q_network_val_parameters, Q_network_parameters in zip(self.Q_network_val.parameters(),
+                                                                  self.Q_network.parameters()):
+            Q_network_val_parameters.data.copy_(
+                self.tau * Q_network_parameters.data + (1.0 - self.tau) * Q_network_val_parameters.data)
+
+
+    def expReplay_validation(self, epoch):
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+        # retrieve recent buffer_size long memory
+        mini_batch = [self.memory[i] for i in range(len(self.memory) - self.batch_size + 1, len(self.memory))]
+
+        running_loss = 0.0
+
+        for state, actions, closing_prices, reward, next_state, done in mini_batch:
+
+            if not done:
+                self.Q_network_val.eval()
+                with torch.no_grad():
+
+                    target_rewards = reward + self.gamma * torch.max(self.Q_network_val.forward(next_state)).item()
+            else:
+                target_rewards = reward
+
+            self.Q_network.eval()
+
+            actions_tensor = torch.tensor([actions[0]], dtype=torch.long).to(device)  # Convert actions[0] to a tensor
+
+            expected_rewards = torch.gather(self.Q_network.forward(state), dim=0, index=actions_tensor).to(device)
+
+            target_rewards = torch.tensor([target_rewards], dtype=torch.float).to(device)
+
+            # CHANGE TO MAKE VECTOR?
+            loss = self.loss_fn(expected_rewards, target_rewards)
+
+            running_loss += loss.item()
+
+        avg_loss = running_loss / self.batch_size
+        self.batch_loss_history.append(avg_loss)
+
+        # if self.epsilon > self.epsilon_min:
+        #     self.epsilon *= self.epsilon_decay
+
+        # update at the end of batch Q_network_val using tau
+        # do we still need to do this?
         for Q_network_val_parameters, Q_network_parameters in zip(self.Q_network_val.parameters(),
                                                                   self.Q_network.parameters()):
             Q_network_val_parameters.data.copy_(

@@ -77,9 +77,9 @@ def main(input_filepath, output_filepath):
     unique_dates_training = train_data['date'].unique()
 
     train_loss_history = []
-    loss_hsitory_per_epoch_training = [] # will populate with: [(l1,epoch1),(l2,e1),..(l1,e_n),(l2,e_n)]
+    loss_history_per_epoch_training = [] # will populate with: [(l1,epoch1),(l2,e1),..(l1,e_n),(l2,e_n)]
     epoch_numbers_history_training = []
-    cumulates_profits_list_training = [INITIAL_AMOUNT]
+    cumulated_profits_list_training = [INITIAL_AMOUNT]
     epch_numbers_history_for_profits_training = [0]
 
     # VALIDATION  ###########################################################
@@ -159,16 +159,16 @@ def main(input_filepath, output_filepath):
             # track loss per epoch
             loss_per_epoch = sum(train_loss_history) / len(train_loss_history)
             print(f'Training Loss for Epoch {e}: {loss_per_epoch:.4f}')
-            loss_hsitory_per_epoch_training.append(loss_per_epoch)
+            loss_history_per_epoch_training.append(loss_per_epoch)
             epoch_numbers_history_training.append(e)
             epch_numbers_history_for_profits_training.append(e)
 
             # track cumulated profits
             cumulated_profit_per_epoch = agent.portfolio_state[0,0]
-            cumulates_profits_list_training.append(cumulated_profit_per_epoch)
+            cumulated_profits_list_training.append(cumulated_profit_per_epoch)
 
         # Save explainability DataFrame for the last epoch
-        if e < (agent.num_epochs-1):
+        if e == (agent.num_epochs-1):
             current_date = datetime.datetime.now()
             date_string = current_date.strftime("%Y-%m-%d")
             agent.explainability_df.to_csv(
@@ -179,72 +179,73 @@ def main(input_filepath, output_filepath):
         agent.Q_network.eval()  # Set the model to evaluation mode
         val_loss_per_epoch = 0
         val_samples = 0
+        agent.epsilon = 0.0 # no exploration
+        unique_dates_validation = validation_data['date'].unique()
 
         l_validation = len(unique_dates_validation)
         for t in range(l_validation):
 
+            ####
             data_window = validation_data.loc[(validation_data['date'] == unique_dates_validation[t])]
+
+            # replace NaN values with 0.0
             data_window = data_window.fillna(0)
             dates = data_window['date'].tolist()
 
-            state = getState(data_window, t, agent)  # Initial state for validation
+            state = getState(data_window, t, agent)
+
+            # take action a, observe reward and next_state
             closing_prices = data_window['close'].tolist()
-            done = False
 
-            #do exp replay for validation
+            action_index = agent.act(state, closing_prices)
 
-            while not done:
-                # Take action based on the current state
+            # Find the indeces (stock_i, action_index_for_stock_i) where action_index  is present in action_index_arr_mask
 
-                agent.epsilon = 0.0 #no exploration
-                action_index = agent.act(state, closing_prices)
+            indices = np.where(action_index_arr_mask == action_index)
+            stock_i, action_index_for_stock_i = map(int, indices)
 
-                indices = np.where(action_index_arr_mask == action_index)
-                stock_i, action_index_for_stock_i = map(int, indices)
+            reward = agent.execute_action(action_index_for_stock_i, closing_prices, stock_i, h, e, dates)
 
-                # Execute the action and observe the next state and reward
-                next_state, agent = getState(data_window, t+1, agent)  # Next state for validation
+            # Next state should append the t+1 data and portfolio_state. It also updates the position of agent portfolio based on agent position
+            next_state, agent = getState(data_window, t+1, agent)
 
-                reward = agent.execute_action(action_index_for_stock_i, closing_prices, stock_i, h, e, dates)
+            done = True if t==l_validation-1 else False
 
-                if not done:
-                    agent.Q_network_val.eval()
-                    with torch.no_grad():
-                        target_rewards = reward + agent.gamma * torch.max(agent.Q_network_val.forward(next_state)).item()
-                else:
-                    target_rewards = reward
 
-                actions_tensor = torch.tensor([action_index], dtype=torch.long).to(device)  # Convert actions[0] to a tensor
+            agent.remember(state=state, actions=(action_index_for_stock_i, stock_i, h), closing_prices=closing_prices,
+                           reward=reward, next_state=next_state, done=done)
 
-                expected_rewards = torch.gather(agent.Q_network.forward(state), dim=0, index=actions_tensor).to(device)
+            state = next_state
 
-                target_rewards = torch.tensor([target_rewards], dtype=torch.float).to(device)
+            if len(agent.memory) >= agent.batch_size:
+                agent.expReplay_validation(e) # will also save the model on the last epoch
 
-                loss = agent.loss_fn(expected_rewards, target_rewards)
+                batch_loss_history = agent.batch_loss_history.copy()
+                val_loss_history.extend(batch_loss_history)
 
-                # Accumulate the validation loss
-                val_loss_per_epoch += loss.item()
-                val_samples += 1
-
-                state = next_state
-
-                done = True if t==l_validation-1 else False
-
-        # keeping track of loss and cumulated profits
-        if val_samples > 0:
-            val_loss_per_epoch /= val_samples
-            val_loss_history.append(val_loss_per_epoch)
-            loss_history_per_epoch_validation.append(val_loss_per_epoch)
-            epoch_numbers_history_validation.append(e)
-            epoch_numbers_history_for_profits_validation.append(e)
+            ####
 
         # printing portfolio state for validation at the end of the epoch run
         df_portfolio_state = pd.DataFrame(agent.portfolio_state, columns = cols_stocks)
-        df_portfolio_state.insert(0, 'TIC', agent.protfolio_state_rows)
+        df_portfolio_state.insert(0, 'TIC', agent.portfolio_state_rows)
         print(f'Validation: Portfolio state for epoch {e} is \n: {df_portfolio_state}')
 
+        # keeping track of loss and cumulated profits
+        if len(val_loss_history)>0:
+            # track loss per epoch
+            loss_per_epoch = sum(val_loss_history) / len(val_loss_history)
+            print(f'Training Loss for Epoch {e}: {loss_per_epoch:.4f}')
+            loss_history_per_epoch_validation.append(loss_per_epoch)
+            epoch_numbers_history_validation.append(e)
+            epoch_numbers_history_for_profits_validation.append(e)
+
+            # track cumulated profits
+            cumulated_profit_per_epoch = agent.portfolio_state[0,0]
+            cumulated_profits_list_validation.append(cumulated_profit_per_epoch)
+
+
         # Save explainability DataFrame for the last epoch
-        if e < (agent.num_epochs-1):
+        if e == (agent.num_epochs-1):
             current_date = datetime.datetime.now()
             date_string = current_date.strftime("%Y-%m-%d")
             agent.explainability_df.to_csv(
@@ -259,7 +260,7 @@ def main(input_filepath, output_filepath):
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
 
     # Plot for training loss
-    ax1.plot(epoch_numbers_history_training, loss_hsitory_per_epoch_training, label='Training Loss')
+    ax1.plot(epoch_numbers_history_training, loss_history_per_epoch_training, label='Training Loss')
     ax1.plot(epoch_numbers_history_validation, loss_history_per_epoch_validation, label='Validation Loss',
              color='orange')
     ax1.set_xlabel('Epoch')
@@ -268,7 +269,7 @@ def main(input_filepath, output_filepath):
     ax1.legend()
 
     # Plot for cumulative profits
-    ax2.plot(epch_numbers_history_for_profits_training, cumulates_profits_list_training, label='Training Profits')
+    ax2.plot(epch_numbers_history_for_profits_training, cumulated_profits_list_training, label='Training Profits')
     ax2.plot(epoch_numbers_history_for_profits_validation, cumulated_profits_list_validation,
              label='Validation Profits', color='orange')
     ax2.set_xlabel('Epoch')
