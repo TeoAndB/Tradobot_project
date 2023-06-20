@@ -29,49 +29,36 @@ def main(input_filepath, output_filepath):
     """
     logger = logging.getLogger(__name__)
 
-    data = pd.read_csv(f'{input_filepath}/{DATASET}')[:2144]
-    data['date'] = pd.to_datetime(data['date'])
+    data = pd.read_csv(f'{input_filepath}/{DATASET}')[:927]
+    print(f'Dataset used: {input_filepath}/{DATASET}')
+
 
     # Create an empty DataFrames for explainability
     cols_stocks = data['tic'].unique().tolist()
-    pre_existing_dataframe_training = pd.DataFrame(columns=['Dates', 'Closing Prices'] + cols_stocks)
-    pre_existing_dataframe_validation = pd.DataFrame(columns=['Dates', 'Closing Prices'] + cols_stocks)
-
 
     # Set the seed for reproducibility
     random_seed = 42
-    # using unique dates for splitting (not timestamps)
-    unique_dates_days = pd.to_datetime(data['date']).dt.date.unique().tolist()
+    unique_dates = data['date'].unique().tolist()
 
-    print(f'Len of unique_dates_days is {len(unique_dates_days)}')
-
-    train_ratio = 0.75
+    train_ratio = 0.7
     val_ratio = 0.15
-    test_ratio = 0.10
+    test_ratio = 0.15
 
     # Calculate the number of samples for each split
-    total_samples = len(unique_dates_days)
+    total_samples = len(unique_dates)
     num_train_samples = int(train_ratio * total_samples)
     num_val_samples = int(val_ratio * total_samples)
 
     # Split the data using slicing
-    train_dates = unique_dates_days[:num_train_samples]
-    validation_dates = unique_dates_days[num_train_samples:num_train_samples + num_val_samples]
-    test_dates = unique_dates_days[num_train_samples + num_val_samples:]
+    train_dates = unique_dates[:num_train_samples]
+    validation_dates = unique_dates[num_train_samples:num_train_samples + num_val_samples]
+    test_dates = unique_dates[num_train_samples + num_val_samples:]
 
     # Create the train, validation, and test DataFrames based on the selected dates
-    train_data = data[data['date'].dt.date.isin(train_dates)]
-    validation_data = data[data['date'].dt.date.isin(validation_dates)]
-    test_data = data[data['date'].dt.date.isin(test_dates)]
+    train_data = data[data['date'].isin(train_dates)]
+    validation_data = data[data['date'].isin(validation_dates)]
+    test_data = data[data['date'].isin(test_dates)]
 
-
-    # for explainability
-    protfolio_state_rows = ['total_balance','position_per_stock','position_portfolio',
-                            'daily_return_per_stock','daily_return_portfolio','cash_left',
-                            'percentage_position_stock','shares_per_stock']
-
-
-    print(f'Training on dataset: {input_filepath}/{DATASET}')
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f'Model running on {device}')
@@ -79,7 +66,7 @@ def main(input_filepath, output_filepath):
 
     num_features = len(data.columns) + len(data.tic.unique()) - 1 #data_window after being preprocessed with one hot encoding
 
-    agent = Agent(num_stocks=NUM_STOCKS, actions_dict=ACTIONS_DICTIONARY, h=h, num_features=num_features, balance=INITIAL_AMOUNT,
+    agent = Agent(num_stocks=NUM_STOCKS, actions_dict=ACTIONS_DICTIONARY, h=h, num_features=num_features, balance=INITIAL_AMOUNT, name_stocks=cols_stocks,
                   gamma=GAMMA, epsilon=EPSILON, epsilon_min=EPSILON_MIN,
                   epsilon_decay=EPSILON_DECAY, learning_rate=LEARNING_RATE, batch_size=BATCH_SIZE, tau=TAU, num_epochs=NUM_EPOCHS)
 
@@ -112,9 +99,6 @@ def main(input_filepath, output_filepath):
         agent.reset()
 
         data_window = train_data.loc[(train_data['date'] == unique_dates_training[0])]
-
-        prev_closing_prices = data_window['close'].tolist()
-
         initial_state, agent = getState(data_window, 0, agent)
 
         # TRAINING PHASE ##################################################################
@@ -127,6 +111,7 @@ def main(input_filepath, output_filepath):
 
             # replace NaN values with 0.0
             data_window = data_window.fillna(0)
+            dates = data_window['date'].tolist()
 
             state = getState(data_window, t, agent)
 
@@ -140,41 +125,13 @@ def main(input_filepath, output_filepath):
             indices = np.where(action_index_arr_mask == action_index)
             stock_i, action_index_for_stock_i = map(int, indices)
 
-            reward = agent.execute_action(action_index_for_stock_i, closing_prices, stock_i, h)
-
-            # add close prices, tickers and agent's memory step to explainability DataFrame
+            reward = agent.execute_action(action_index_for_stock_i, closing_prices, stock_i, h, e, dates)
 
             # Next state should append the t+1 data and portfolio_state. It also updates the position of agent portfolio based on agent position
             next_state, agent = getState(data_window, t+1, agent)
 
             done = True if t==l_training-1 else False
 
-            # TODO: Add it to Portfolio
-            # self.dates, self.closing_prices, self.acions
-            # update these each time there is an action. Include them in the action method
-            # self.explainability_memory - a queue of length delta_t that contains dataframe entries for the last delta_t period
-
-            # # EXPLAINABILITY for last epoch ########################################
-            # if e == agent.num_epochs - 1:
-            #     dates = data_window['date']
-            #     actions = ['None'] * agent.num_stocks
-            #     actions[stock_i] = ACTIONS_DICTIONARY[action_index_for_stock_i]
-            #
-            #     dates_series = pd.Series(dates, name='Dates')
-            #     closing_prices_series = pd.Series(closing_prices, name='Closing Prices')
-            #     action_series = pd.Series(actions, name='Actions')
-            #
-            #     # turning agent.portfolio_state to DataFrame
-            #     df_portfolio_state = pd.DataFrame(agent.portfolio_state, columns=cols_stocks)
-            #     df_portfolio_state.insert(0, 'TIC', protfolio_state_rows)
-            #     df_portfolio_state.set_index('TIC', inplace=True)
-            #
-            #     initial_memory_step = pd.concat([dates_series, closing_prices_series, action_series, df_portfolio_state.T], axis=1)
-            #
-            #     # Append to pre-existing DataFrame
-            #     df_memory_step = pd.DataFrame(initial_memory_step, columns=['Dates', 'Closing Prices', 'Action'] + cols_stocks)
-            #     pre_existing_dataframe_training = pd.concat([pre_existing_dataframe_training, df_memory_step],
-            #                                                   ignore_index=True)
 
             agent.remember(state=state, actions=(action_index_for_stock_i, stock_i, h), closing_prices=closing_prices,
                            reward=reward, next_state=next_state, done=done)
@@ -194,9 +151,10 @@ def main(input_filepath, output_filepath):
 
         # printing portfolio state
         df_portfolio_state = pd.DataFrame(agent.portfolio_state, columns = cols_stocks)
-        df_portfolio_state.insert(0, 'TIC', protfolio_state_rows)
+        df_portfolio_state.insert(0, 'TIC', agent.portfolio_state_rows)
         print(f'Training: Portfolio state for epoch {e} is \n: {df_portfolio_state}')
 
+        # keeping track of loss and cumulated profits
         if len(train_loss_history)>0:
             # track loss per epoch
             loss_per_epoch = sum(train_loss_history) / len(train_loss_history)
@@ -209,6 +167,13 @@ def main(input_filepath, output_filepath):
             cumulated_profit_per_epoch = agent.portfolio_state[0,0]
             cumulates_profits_list_training.append(cumulated_profit_per_epoch)
 
+        # Save explainability DataFrame for the last epoch
+        if e < (agent.num_epochs-1):
+            current_date = datetime.datetime.now()
+            date_string = current_date.strftime("%Y-%m-%d")
+            agent.explainability_df.to_csv(
+                f'./reports/results_DQN/training_explainability_{DATASET}_{date_string}.csv', index=False)
+
         # VALIDATION PHASE ########################################################################
         agent.reset()
         agent.Q_network.eval()  # Set the model to evaluation mode
@@ -218,35 +183,44 @@ def main(input_filepath, output_filepath):
         l_validation = len(unique_dates_validation)
         for t in range(l_validation):
 
-            # TODO: Fix Validation. Look how it is in ExpReplay
-            # Makybe make a replay for validation inside the agent
-
             data_window = validation_data.loc[(validation_data['date'] == unique_dates_validation[t])]
             data_window = data_window.fillna(0)
-
-            # printing portfolio state for validation
-            df_portfolio_state = pd.DataFrame(agent.portfolio_state, columns=cols_stocks)
-            df_portfolio_state.insert(0, 'TIC', protfolio_state_rows)
-            print(f'Validation: Portfolio state for epoch {e} is \n: {df_portfolio_state}')
+            dates = data_window['date'].tolist()
 
             state = getState(data_window, t, agent)  # Initial state for validation
             closing_prices = data_window['close'].tolist()
             done = False
 
+            #do exp replay for validation
+
             while not done:
                 # Take action based on the current state
+
+                agent.epsilon = 0.0 #no exploration
                 action_index = agent.act(state, closing_prices)
+
+                indices = np.where(action_index_arr_mask == action_index)
+                stock_i, action_index_for_stock_i = map(int, indices)
 
                 # Execute the action and observe the next state and reward
                 next_state, agent = getState(data_window, t+1, agent)  # Next state for validation
-                reward = agent.execute_action(action_index, closing_prices, 0, h)  # Assuming stock_i = 0 for validation
 
-                # Calculate the loss between the predicted Q-value and target Q-value
-                Q_values = agent.Q_network.forward(state)
-                target_Q_values = agent.Q_network_target.forward(next_state)
-                target_Q_max = torch.max(target_Q_values)
-                target_Q = reward + agent.gamma * target_Q_max
-                loss = agent.criterion(Q_values, target_Q)
+                reward = agent.execute_action(action_index_for_stock_i, closing_prices, stock_i, h, e, dates)
+
+                if not done:
+                    agent.Q_network_val.eval()
+                    with torch.no_grad():
+                        target_rewards = reward + agent.gamma * torch.max(agent.Q_network_val.forward(next_state)).item()
+                else:
+                    target_rewards = reward
+
+                actions_tensor = torch.tensor([action_index], dtype=torch.long).to(device)  # Convert actions[0] to a tensor
+
+                expected_rewards = torch.gather(agent.Q_network.forward(state), dim=0, index=actions_tensor).to(device)
+
+                target_rewards = torch.tensor([target_rewards], dtype=torch.float).to(device)
+
+                loss = agent.loss_fn(expected_rewards, target_rewards)
 
                 # Accumulate the validation loss
                 val_loss_per_epoch += loss.item()
@@ -254,45 +228,9 @@ def main(input_filepath, output_filepath):
 
                 state = next_state
 
-                # EXPLAINABILITY #################################################
+                done = True if t==l_validation-1 else False
 
-                options = maskActions_evaluation(Q_values, agent.portfolio_state, agent.num_stocks,
-                                      agent.num_actions,
-                                      agent.actions_dict, agent.h, closing_prices, agent.device)
-
-                action_index = torch.argmax(options).item()
-                indices = np.where(action_index_arr_mask == action_index)
-                stock_i, action_index_for_stock_i = map(int, indices)
-
-                # take action_index for stock i:
-                if e == agent.num_epochs - 1:
-                    dates = data_window['date']
-                    actions = ['None'] * agent.num_stocks
-                    actions[stock_i] = agent.actions_dict[action_index_for_stock_i]
-
-                    # transform to series
-                    dates_series = pd.Series(dates, name='Dates')
-                    closing_prices_series = pd.Series(closing_prices, name='Closing Prices')
-                    action_series = pd.Series(actions, name='Actions')
-
-                    # turning agent.portfolio_state to DataFrame
-                    df_portfolio_state = pd.DataFrame(agent.portfolio_state, columns=cols_stocks)
-                    df_portfolio_state.insert(0, 'TIC', protfolio_state_rows)
-
-                    initial_memory_step = pd.concat(
-                        [dates_series, closing_prices_series, action_series, df_portfolio_state.T], axis=1)
-
-                    # Append to pre-existing DataFrame
-                    df_memory_step = pd.DataFrame(initial_memory_step,
-                                                  columns=['Dates', 'Closing Prices', 'Action'] + cols_stocks)
-
-                    pre_existing_dataframe_evaluation = pd.concat([pre_existing_dataframe_evaluation, df_memory_step], ignore_index=True)
-
-
-                print(f'Explainability DataFrame for epoch {e} is: \n{pre_existing_dataframe_validation}')
-
-                done = True
-
+        # keeping track of loss and cumulated profits
         if val_samples > 0:
             val_loss_per_epoch /= val_samples
             val_loss_history.append(val_loss_per_epoch)
@@ -300,17 +238,22 @@ def main(input_filepath, output_filepath):
             epoch_numbers_history_validation.append(e)
             epoch_numbers_history_for_profits_validation.append(e)
 
-        # printing portfolio state for validation
+        # printing portfolio state for validation at the end of the epoch run
         df_portfolio_state = pd.DataFrame(agent.portfolio_state, columns = cols_stocks)
-        df_portfolio_state.insert(0, 'TIC', protfolio_state_rows)
+        df_portfolio_state.insert(0, 'TIC', agent.protfolio_state_rows)
         print(f'Validation: Portfolio state for epoch {e} is \n: {df_portfolio_state}')
+
+        # Save explainability DataFrame for the last epoch
+        if e < (agent.num_epochs-1):
+            current_date = datetime.datetime.now()
+            date_string = current_date.strftime("%Y-%m-%d")
+            agent.explainability_df.to_csv(
+                f'./reports/results_DQN/validation_explainability_{DATASET}_{date_string}.csv', index=False)
+
 
     current_date = datetime.datetime.now()
     date_string = current_date.strftime("%Y-%m-%d")
 
-    # Save explainability DataFrames #####################
-    pre_existing_dataframe_training.to_csv(f'./reports/results_DQN/training_explainability_{DATASET}_{date_string}.csv', index=False)
-    pre_existing_dataframe_validation.to_csv(f'./reports/results_DQN/validation_explainability_{DATASET}_{date_string}.csv', index=False)
 
     # PLOTTING: Loss and Cumulated profits #######################################################
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))

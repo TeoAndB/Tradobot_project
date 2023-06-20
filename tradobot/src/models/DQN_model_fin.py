@@ -171,7 +171,8 @@ def getState(data_window, t, agent):
 
 
 class Portfolio:
-    def __init__(self, num_stocks, balance, closing_prices=[]):
+    def __init__(self, num_stocks, balance, name_stocks, closing_prices=[]):
+        self.name_stocks_list = name_stocks
         self.initial_total_balance = float(balance)
         self.initial_total_balances = [float(balance)] * num_stocks  # pos in stocks + cash left
         self.initial_position_stocks = [0.0] * num_stocks
@@ -180,6 +181,14 @@ class Portfolio:
         self.initial_daily_return_total = [0.0] * num_stocks
         self.initial_cash_left = [float(balance)] * num_stocks
         self.initial_percentage_positions = [0.0] * num_stocks  # liquid cash is included
+
+        # for explainability
+        self.portfolio_state_rows = ['total_balance', 'position_per_stock', 'position_portfolio',
+                                    'daily_return_per_stock', 'daily_return_portfolio', 'cash_left',
+                                    'percentage_position_stock', 'shares_per_stock']
+
+        self.explainability_df = pd.DataFrame()
+
 
         if not closing_prices:
             self.initial_shares_per_stock = [0.0] * num_stocks
@@ -280,9 +289,9 @@ class DQNNetwork(nn.Module):
 
 
 class Agent(Portfolio):
-    def __init__(self, num_stocks, actions_dict, h, num_features, balance, gamma=0.99, epsilon=1.0, epsilon_min=0.01,
+    def __init__(self, num_stocks, actions_dict, h, num_features, balance, name_stocks, gamma=0.99, epsilon=1.0, epsilon_min=0.01,
                  epsilon_decay=0.9999, learning_rate=0.001, batch_size=32, tau=1e-3, num_epochs=10):
-        super().__init__(balance=balance, num_stocks=num_stocks)
+        super().__init__(balance=balance, num_stocks=num_stocks, name_stocks= name_stocks)
 
         self.num_stocks = num_stocks
         self.num_actions = len(actions_dict)
@@ -368,7 +377,7 @@ class Agent(Portfolio):
             target_rewards = torch.tensor([target_rewards], dtype=torch.float).to(device)
 
             # CHANGE TO MAKE VECTOR?
-            loss = F.mse_loss(expected_rewards, target_rewards)
+            loss = self.loss_fn(expected_rewards, target_rewards)
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
@@ -387,7 +396,7 @@ class Agent(Portfolio):
             Q_network_val_parameters.data.copy_(
                 self.tau * Q_network_parameters.data + (1.0 - self.tau) * Q_network_val_parameters.data)
 
-    def execute_action(self, action_index_for_stock_i, closing_prices, stock_i, h):
+    def execute_action(self, action_index_for_stock_i, closing_prices, stock_i, h, e, dates):
         action_dictionary = {
             0: self.buy_0_1,
             1: self.buy_0_25,
@@ -406,7 +415,7 @@ class Agent(Portfolio):
         selected_function = action_dictionary.get(action_index_for_stock_i)
         if selected_function is not None:
             # Call the selected function with the provided arguments
-            reward = selected_function(closing_prices, stock_i, h)
+            reward = selected_function(closing_prices, stock_i, h, e, dates)
             # Process the result if needed
         else:
             # Handle the case when action_index_for_stock_i is not found in the dictionary
@@ -414,7 +423,7 @@ class Agent(Portfolio):
 
         return reward
 
-    def buy_0_1(self, closing_prices, stock_i, h):
+    def buy_0_1(self, closing_prices, stock_i, h, e, dates):
 
         # self.portfolio_state = np.asarray([self.total_balances,self.position_stocks,self.position_portfolio,
         #                                      self.daily_return_stock,self.daily_return_total,
@@ -486,9 +495,33 @@ class Agent(Portfolio):
         # reward is daily/ min return per protfolio
         reward = self.portfolio_state[4, 0]
 
+        # Explainability for last epoch
+        if e == (self.num_epochs-1):
+
+            dates = dates
+            actions = ['None'] * self.num_stocks
+            actions[stock_i] = 'buy_0_1'
+            tics = self.name_stocks_list
+
+            dates_series = pd.Series(dates, name='Dates')
+            closing_prices_series = pd.Series(closing_prices, name='Closing Prices')
+            tics_series = pd.Series(tics, name='TIC')
+            action_series = pd.Series(actions, name='Actions')
+
+            # turning agent.portfolio_state to DataFrame
+            df_portfolio_state = pd.DataFrame(self.portfolio_state, columns=self.name_stocks_list)
+            df_portfolio_state.insert(0, 'TIC', self.portfolio_state_rows)
+            df_portfolio_state.set_index('TIC', inplace=True)
+            df_portfolio_state_T = df_portfolio_state.T.reset_index(drop=True)
+
+            df_memory_step = pd.concat([dates_series, tics_series, action_series, df_portfolio_state_T], axis=1)
+
+            self.explainability_df = pd.concat([self.explainability_df, df_memory_step], ignore_index=True)
+
+
         return reward
 
-    def buy_0_25(self, closing_prices, stock_i, h):
+    def buy_0_25(self, closing_prices, stock_i, h, e, dates):
 
         # self.portfolio_state = np.asarray([self.total_balances,self.position_stocks,self.position_portfolio,
         #                                      self.daily_return_stock,self.daily_return_total,
@@ -560,9 +593,32 @@ class Agent(Portfolio):
         # reward is daily/ min return per protfolio
         reward = self.portfolio_state[4, 0]
 
+        # Explainability for last epoch
+        if e == (self.num_epochs-1):
+
+            dates = dates
+            actions = ['None'] * self.num_stocks
+            actions[stock_i] = 'buy_0_25'
+            tics = self.name_stocks_list
+
+            dates_series = pd.Series(dates, name='Dates')
+            closing_prices_series = pd.Series(closing_prices, name='Closing Prices')
+            tics_series = pd.Series(tics, name='TIC')
+            action_series = pd.Series(actions, name='Actions')
+
+            # turning agent.portfolio_state to DataFrame
+            df_portfolio_state = pd.DataFrame(self.portfolio_state, columns=self.name_stocks_list)
+            df_portfolio_state.insert(0, 'TIC', self.portfolio_state_rows)
+            df_portfolio_state.set_index('TIC', inplace=True)
+            df_portfolio_state_T = df_portfolio_state.T.reset_index(drop=True)
+
+            df_memory_step = pd.concat([dates_series, tics_series, action_series, df_portfolio_state_T], axis=1)
+
+            self.explainability_df = pd.concat([self.explainability_df, df_memory_step], ignore_index=True)
+
         return reward
 
-    def buy_0_50(self, closing_prices, stock_i, h):
+    def buy_0_50(self, closing_prices, stock_i, h, e, dates):
 
         # self.portfolio_state = np.asarray([self.total_balances,self.position_stocks,self.position_portfolio,
         #                                      self.daily_return_stock,self.daily_return_total,
@@ -634,9 +690,32 @@ class Agent(Portfolio):
         # reward is daily/ min return per protfolio
         reward = self.portfolio_state[4, 0]
 
+        # Explainability for last epoch
+        if e == (self.num_epochs-1):
+
+            dates = dates
+            actions = ['None'] * self.num_stocks
+            actions[stock_i] = 'buy_0_50'
+            tics = self.name_stocks_list
+
+            dates_series = pd.Series(dates, name='Dates')
+            closing_prices_series = pd.Series(closing_prices, name='Closing Prices')
+            tics_series = pd.Series(tics, name='TIC')
+            action_series = pd.Series(actions, name='Actions')
+
+            # turning agent.portfolio_state to DataFrame
+            df_portfolio_state = pd.DataFrame(self.portfolio_state, columns=self.name_stocks_list)
+            df_portfolio_state.insert(0, 'TIC', self.portfolio_state_rows)
+            df_portfolio_state.set_index('TIC', inplace=True)
+            df_portfolio_state_T = df_portfolio_state.T.reset_index(drop=True)
+
+            df_memory_step = pd.concat([dates_series, tics_series, action_series, df_portfolio_state_T], axis=1)
+
+            self.explainability_df = pd.concat([self.explainability_df, df_memory_step], ignore_index=True)
+
         return reward
 
-    def buy_0_75(self, closing_prices, stock_i, h):
+    def buy_0_75(self, closing_prices, stock_i, h, e, dates):
 
         # self.portfolio_state = np.asarray([self.total_balances,self.position_stocks,self.position_portfolio,
         #                                      self.daily_return_stock,self.daily_return_total,
@@ -708,9 +787,32 @@ class Agent(Portfolio):
         # reward is daily/ min return per protfolio
         reward = self.portfolio_state[4, 0]
 
+        # Explainability for last epoch
+        if e == (self.num_epochs-1):
+
+            dates = dates
+            actions = ['None'] * self.num_stocks
+            actions[stock_i] = 'buy_0_75'
+            tics = self.name_stocks_list
+
+            dates_series = pd.Series(dates, name='Dates')
+            closing_prices_series = pd.Series(closing_prices, name='Closing Prices')
+            tics_series = pd.Series(tics, name='TIC')
+            action_series = pd.Series(actions, name='Actions')
+
+            # turning agent.portfolio_state to DataFrame
+            df_portfolio_state = pd.DataFrame(self.portfolio_state, columns=self.name_stocks_list)
+            df_portfolio_state.insert(0, 'TIC', self.portfolio_state_rows)
+            df_portfolio_state.set_index('TIC', inplace=True)
+            df_portfolio_state_T = df_portfolio_state.T.reset_index(drop=True)
+
+            df_memory_step = pd.concat([dates_series, tics_series, action_series, df_portfolio_state_T], axis=1)
+
+            self.explainability_df = pd.concat([self.explainability_df, df_memory_step], ignore_index=True)
+
         return reward
 
-    def buy_1(self, closing_prices, stock_i, h):
+    def buy_1(self, closing_prices, stock_i, h, e, dates):
 
         # self.portfolio_state = np.asarray([self.total_balances,self.position_stocks,self.position_portfolio,
         #                                      self.daily_return_stock,self.daily_return_total,
@@ -782,9 +884,32 @@ class Agent(Portfolio):
         # reward is daily/ min return per protfolio
         reward = self.portfolio_state[4, 0]
 
+        # Explainability for last epoch
+        if e == (self.num_epochs-1):
+
+            dates = dates
+            actions = ['None'] * self.num_stocks
+            actions[stock_i] = 'buy_1'
+            tics = self.name_stocks_list
+
+            dates_series = pd.Series(dates, name='Dates')
+            closing_prices_series = pd.Series(closing_prices, name='Closing Prices')
+            tics_series = pd.Series(tics, name='TIC')
+            action_series = pd.Series(actions, name='Actions')
+
+            # turning agent.portfolio_state to DataFrame
+            df_portfolio_state = pd.DataFrame(self.portfolio_state, columns=self.name_stocks_list)
+            df_portfolio_state.insert(0, 'TIC', self.portfolio_state_rows)
+            df_portfolio_state.set_index('TIC', inplace=True)
+            df_portfolio_state_T = df_portfolio_state.T.reset_index(drop=True)
+
+            df_memory_step = pd.concat([dates_series, tics_series, action_series, df_portfolio_state_T], axis=1)
+
+            self.explainability_df = pd.concat([self.explainability_df, df_memory_step], ignore_index=True)
+
         return reward
 
-    def sell_0_1(self, closing_prices, stock_i, h):
+    def sell_0_1(self, closing_prices, stock_i, h, e, dates):
 
         # self.portfolio_state = np.asarray([self.total_balances,self.position_stocks,self.position_portfolio,
         #                                      self.daily_return_stock,self.daily_return_total,
@@ -856,9 +981,32 @@ class Agent(Portfolio):
         # reward is daily/ min return per protfolio
         reward = self.portfolio_state[4, 0]
 
+        # Explainability for last epoch
+        if e == (self.num_epochs-1):
+
+            dates = dates
+            actions = ['None'] * self.num_stocks
+            actions[stock_i] = 'sell_0_1'
+            tics = self.name_stocks_list
+
+            dates_series = pd.Series(dates, name='Dates')
+            closing_prices_series = pd.Series(closing_prices, name='Closing Prices')
+            tics_series = pd.Series(tics, name='TIC')
+            action_series = pd.Series(actions, name='Actions')
+
+            # turning agent.portfolio_state to DataFrame
+            df_portfolio_state = pd.DataFrame(self.portfolio_state, columns=self.name_stocks_list)
+            df_portfolio_state.insert(0, 'TIC', self.portfolio_state_rows)
+            df_portfolio_state.set_index('TIC', inplace=True)
+            df_portfolio_state_T = df_portfolio_state.T.reset_index(drop=True)
+
+            df_memory_step = pd.concat([dates_series, tics_series, action_series, df_portfolio_state_T], axis=1)
+
+            self.explainability_df = pd.concat([self.explainability_df, df_memory_step], ignore_index=True)
+
         return reward
 
-    def sell_0_25(self, closing_prices, stock_i, h):
+    def sell_0_25(self, closing_prices, stock_i, h, e, dates):
 
         # self.portfolio_state = np.asarray([self.total_balances,self.position_stocks,self.position_portfolio,
         #                                      self.daily_return_stock,self.daily_return_total,
@@ -930,9 +1078,32 @@ class Agent(Portfolio):
         # reward is daily/ min return per protfolio
         reward = self.portfolio_state[4, 0]
 
+        # Explainability for last epoch
+        if e == (self.num_epochs-1):
+
+            dates = dates
+            actions = ['None'] * self.num_stocks
+            actions[stock_i] = 'sell_0_25'
+            tics = self.name_stocks_list
+
+            dates_series = pd.Series(dates, name='Dates')
+            closing_prices_series = pd.Series(closing_prices, name='Closing Prices')
+            tics_series = pd.Series(tics, name='TIC')
+            action_series = pd.Series(actions, name='Actions')
+
+            # turning agent.portfolio_state to DataFrame
+            df_portfolio_state = pd.DataFrame(self.portfolio_state, columns=self.name_stocks_list)
+            df_portfolio_state.insert(0, 'TIC', self.portfolio_state_rows)
+            df_portfolio_state.set_index('TIC', inplace=True)
+            df_portfolio_state_T = df_portfolio_state.T.reset_index(drop=True)
+
+            df_memory_step = pd.concat([dates_series, tics_series, action_series, df_portfolio_state_T], axis=1)
+
+            self.explainability_df = pd.concat([self.explainability_df, df_memory_step], ignore_index=True)
+
         return reward
 
-    def sell_0_50(self, closing_prices, stock_i, h):
+    def sell_0_50(self, closing_prices, stock_i, h, e, dates):
 
         # self.portfolio_state = np.asarray([self.total_balances,self.position_stocks,self.position_portfolio,
         #                                      self.daily_return_stock,self.daily_return_total,
@@ -1004,9 +1175,32 @@ class Agent(Portfolio):
         # reward is daily/ min return per protfolio
         reward = self.portfolio_state[4, 0]
 
+        # Explainability for last epoch
+        if e == (self.num_epochs-1):
+
+            dates = dates
+            actions = ['None'] * self.num_stocks
+            actions[stock_i] = 'sell_0_50'
+            tics = self.name_stocks_list
+
+            dates_series = pd.Series(dates, name='Dates')
+            closing_prices_series = pd.Series(closing_prices, name='Closing Prices')
+            tics_series = pd.Series(tics, name='TIC')
+            action_series = pd.Series(actions, name='Actions')
+
+            # turning agent.portfolio_state to DataFrame
+            df_portfolio_state = pd.DataFrame(self.portfolio_state, columns=self.name_stocks_list)
+            df_portfolio_state.insert(0, 'TIC', self.portfolio_state_rows)
+            df_portfolio_state.set_index('TIC', inplace=True)
+            df_portfolio_state_T = df_portfolio_state.T.reset_index(drop=True)
+
+            df_memory_step = pd.concat([dates_series, tics_series, action_series, df_portfolio_state_T], axis=1)
+
+            self.explainability_df = pd.concat([self.explainability_df, df_memory_step], ignore_index=True)
+
         return reward
 
-    def sell_0_75(self, closing_prices, stock_i, h):
+    def sell_0_75(self, closing_prices, stock_i, h, e, dates):
 
         # self.portfolio_state = np.asarray([self.total_balances,self.position_stocks,self.position_portfolio,
         #                                      self.daily_return_stock,self.daily_return_total,
@@ -1078,9 +1272,32 @@ class Agent(Portfolio):
         # reward is daily/ min return per protfolio
         reward = self.portfolio_state[4, 0]
 
+        # Explainability for last epoch
+        if e == (self.num_epochs-1):
+
+            dates = dates
+            actions = ['None'] * self.num_stocks
+            actions[stock_i] = 'sell_0_75'
+            tics = self.name_stocks_list
+
+            dates_series = pd.Series(dates, name='Dates')
+            closing_prices_series = pd.Series(closing_prices, name='Closing Prices')
+            tics_series = pd.Series(tics, name='TIC')
+            action_series = pd.Series(actions, name='Actions')
+
+            # turning agent.portfolio_state to DataFrame
+            df_portfolio_state = pd.DataFrame(self.portfolio_state, columns=self.name_stocks_list)
+            df_portfolio_state.insert(0, 'TIC', self.portfolio_state_rows)
+            df_portfolio_state.set_index('TIC', inplace=True)
+            df_portfolio_state_T = df_portfolio_state.T.reset_index(drop=True)
+
+            df_memory_step = pd.concat([dates_series, tics_series, action_series, df_portfolio_state_T], axis=1)
+
+            self.explainability_df = pd.concat([self.explainability_df, df_memory_step], ignore_index=True)
+
         return reward
 
-    def sell_1(self, closing_prices, stock_i, h):
+    def sell_1(self, closing_prices, stock_i, h, e, dates):
 
         # self.portfolio_state = np.asarray([self.total_balances,self.position_stocks,self.position_portfolio,
         #                                      self.daily_return_stock,self.daily_return_total,
@@ -1152,9 +1369,32 @@ class Agent(Portfolio):
         # reward is daily/ min return per protfolio
         reward = self.portfolio_state[4, 0]
 
+        # Explainability for last epoch
+        if e == (self.num_epochs-1):
+
+            dates = dates
+            actions = ['None'] * self.num_stocks
+            actions[stock_i] = 'sell_1'
+            tics = self.name_stocks_list
+
+            dates_series = pd.Series(dates, name='Dates')
+            closing_prices_series = pd.Series(closing_prices, name='Closing Prices')
+            tics_series = pd.Series(tics, name='TIC')
+            action_series = pd.Series(actions, name='Actions')
+
+            # turning agent.portfolio_state to DataFrame
+            df_portfolio_state = pd.DataFrame(self.portfolio_state, columns=self.name_stocks_list)
+            df_portfolio_state.insert(0, 'TIC', self.portfolio_state_rows)
+            df_portfolio_state.set_index('TIC', inplace=True)
+            df_portfolio_state_T = df_portfolio_state.T.reset_index(drop=True)
+
+            df_memory_step = pd.concat([dates_series, tics_series, action_series, df_portfolio_state_T], axis=1)
+
+            self.explainability_df = pd.concat([self.explainability_df, df_memory_step], ignore_index=True)
+
         return reward
 
-    def hold(self, closing_prices, stock_i, h):
+    def hold(self, closing_prices, stock_i, h, e, dates):
         # self.portfolio_state = np.asarray([self.total_balances,self.position_stocks,self.position_portfolio,
         #                                      self.daily_return_stock,self.daily_return_total,
         #                                      self.cash_left, self.percentage_positions, self.shares_per_stock])
@@ -1202,9 +1442,32 @@ class Agent(Portfolio):
         # reward is daily/ min return per protfolio
         reward = self.portfolio_state[4, 0]
 
+        # Explainability for last epoch
+        if e == (self.num_epochs-1):
+
+            dates = dates
+            actions = ['None'] * self.num_stocks
+            actions[stock_i] = 'hold'
+            tics = self.name_stocks_list
+
+            dates_series = pd.Series(dates, name='Dates')
+            closing_prices_series = pd.Series(closing_prices, name='Closing Prices')
+            tics_series = pd.Series(tics, name='TIC')
+            action_series = pd.Series(actions, name='Actions')
+
+            # turning agent.portfolio_state to DataFrame
+            df_portfolio_state = pd.DataFrame(self.portfolio_state, columns=self.name_stocks_list)
+            df_portfolio_state.insert(0, 'TIC', self.portfolio_state_rows)
+            df_portfolio_state.set_index('TIC', inplace=True)
+            df_portfolio_state_T = df_portfolio_state.T.reset_index(drop=True)
+
+            df_memory_step = pd.concat([dates_series, tics_series, action_series, df_portfolio_state_T], axis=1)
+
+            self.explainability_df = pd.concat([self.explainability_df, df_memory_step], ignore_index=True)
+
         return reward
 
-    def sell_everything(self, closing_prices, stock_i, h):
+    def sell_everything(self, closing_prices, stock_i, h, e, dates):
         # self.portfolio_state = np.asarray([self.total_balances,self.position_stocks,self.position_portfolio,
         #                                      self.daily_return_stock,self.daily_return_total,
         #                                      self.cash_left, self.percentage_positions, self.shares_per_stock])
@@ -1265,9 +1528,32 @@ class Agent(Portfolio):
         for i in range(self.portfolio_state.shape[1]):
             self.portfolio_state[5, i] = balance_sold
 
+        # Explainability for last epoch
+        if e == (self.num_epochs-1):
+
+            dates = dates
+            actions = ['None'] * self.num_stocks
+            actions[stock_i] = 'sell_everything'
+            tics = self.name_stocks_list
+
+            dates_series = pd.Series(dates, name='Dates')
+            closing_prices_series = pd.Series(closing_prices, name='Closing Prices')
+            tics_series = pd.Series(tics, name='TIC')
+            action_series = pd.Series(actions, name='Actions')
+
+            # turning agent.portfolio_state to DataFrame
+            df_portfolio_state = pd.DataFrame(self.portfolio_state, columns=self.name_stocks_list)
+            df_portfolio_state.insert(0, 'TIC', self.portfolio_state_rows)
+            df_portfolio_state.set_index('TIC', inplace=True)
+            df_portfolio_state_T = df_portfolio_state.T.reset_index(drop=True)
+
+            df_memory_step = pd.concat([dates_series, tics_series, action_series, df_portfolio_state_T], axis=1)
+
+            self.explainability_df = pd.concat([self.explainability_df, df_memory_step], ignore_index=True)
+
         return reward
 
-    def buy_1_share(self, closing_prices, stock_i, h):
+    def buy_1_share(self, closing_prices, stock_i, h, e, dates):
         # self.portfolio_state = np.asarray([self.total_balances,self.position_stocks,self.position_portfolio,
         #                                      self.daily_return_stock,self.daily_return_total,
         #                                      self.cash_left, self.percentage_positions, self.shares_per_stock])
@@ -1337,5 +1623,28 @@ class Agent(Portfolio):
 
         # reward is daily/ min return per protfolio
         reward = self.portfolio_state[4, 0]
+
+        # Explainability for last epoch
+        if e == (self.num_epochs-1):
+
+            dates = dates
+            actions = ['None'] * self.num_stocks
+            actions[stock_i] = 'buy_1_share'
+            tics = self.name_stocks_list
+
+            dates_series = pd.Series(dates, name='Dates')
+            closing_prices_series = pd.Series(closing_prices, name='Closing Prices')
+            tics_series = pd.Series(tics, name='TIC')
+            action_series = pd.Series(actions, name='Actions')
+
+            # turning agent.portfolio_state to DataFrame
+            df_portfolio_state = pd.DataFrame(self.portfolio_state, columns=self.name_stocks_list)
+            df_portfolio_state.insert(0, 'TIC', self.portfolio_state_rows)
+            df_portfolio_state.set_index('TIC', inplace=True)
+            df_portfolio_state_T = df_portfolio_state.T.reset_index(drop=True)
+
+            df_memory_step = pd.concat([dates_series, tics_series, action_series, df_portfolio_state_T], axis=1)
+
+            self.explainability_df = pd.concat([self.explainability_df, df_memory_step], ignore_index=True)
 
         return reward
