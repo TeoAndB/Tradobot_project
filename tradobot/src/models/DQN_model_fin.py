@@ -67,10 +67,10 @@ def maskActions_evaluation(options, portfolio_state, num_stocks, num_actions, ac
             if 'sell' in actions_dict[action_idx] and (portfolio_state[1, stock_i] == 0):
                 options_np[stock_i, action_idx] = 0.0
 
-        options = torch.from_numpy(options_np)
-        options = torch.flatten(options)
+    options = torch.from_numpy(options_np)
+    options = torch.flatten(options)
 
-        return options
+    return options
 
 def maskActions(options, portfolio_state, num_stocks, num_actions, actions_dict, h, closing_prices, device):
     '''
@@ -127,11 +127,12 @@ def maskActions(options, portfolio_state, num_stocks, num_actions, actions_dict,
                 options_np[stock_i, action_idx] = 0.0
             if 'sell' in actions_dict[action_idx] and (portfolio_state[1, stock_i] == 0):
                 options_np[stock_i, action_idx] = 0.0
-        options = torch.from_numpy(options_np)
-        options = torch.flatten(options)
-        options.requires_grad_(True)
 
-        return options.to(device)
+    options = torch.from_numpy(options_np)
+    options = torch.flatten(options)
+    options.requires_grad_(True)
+
+    return options.to(device)
 
 
 def getState(data_window, t, agent):
@@ -230,8 +231,6 @@ class Portfolio:
 
     def reset_portfolio(self):
         self.portfolio_state = np.copy(self.initial_portfolio_state)
-        self.explainability_df = pd.DataFrame()
-
 
 class DQNNetwork(nn.Module):
     def __init__(self, num_stocks, num_actions, num_features):
@@ -246,6 +245,12 @@ class DQNNetwork(nn.Module):
         # define layers
         self.linear_h = nn.Linear(self.num_features, self.h_number)
         self.linear_f = nn.Linear(self.f_number, self.num_actions)
+
+        # Initializing the weights with the Xavier initialization method
+        torch.nn.init.xavier_uniform_(self.linear_h.weight)
+        # Initializing the weights with the Xavier initialization method
+        torch.nn.init.xavier_uniform_(self.linear_f.weight)
+
         self.activation = torch.nn.ReLU()
 
     def forward(self, x):
@@ -291,7 +296,7 @@ class DQNNetwork(nn.Module):
 
 class Agent(Portfolio):
     def __init__(self, num_stocks, actions_dict, h, num_features, balance, name_stocks, gamma=0.99, epsilon=1.0, epsilon_min=0.01,
-                 epsilon_decay=0.9999, learning_rate=0.001, batch_size=32, tau=1e-3, num_epochs=10):
+                 epsilon_decay=0.9999, learning_rate=0.001, batch_size=32, tau=1e-3, num_epochs=10, model_path='', model_target_path=''):
         super().__init__(balance=balance, num_stocks=num_stocks, name_stocks= name_stocks)
 
         self.num_stocks = num_stocks
@@ -316,8 +321,14 @@ class Agent(Portfolio):
         self.num_epochs = num_epochs
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
         self.Q_network = DQNNetwork(num_stocks, self.num_actions, self.num_features_total).to(self.device).float()
         self.Q_network_val = DQNNetwork(num_stocks, self.num_actions, self.num_features_total).to(self.device).float()
+
+        # load a pre-trained model
+        if model_path and model_target_path:
+            self.Q_network.load_state_dict(torch.load(model_path))
+            self.Q_network_val.load_state_dict(torch.load(model_target_path))
 
         self.optimizer = torch.optim.Adam(self.Q_network.parameters(), lr=self.learning_rate)
 
@@ -340,7 +351,6 @@ class Agent(Portfolio):
                                                              self.num_actions,
                                                              self.actions_dict, self.h, closing_prices, self.device)
             action_index = torch.argmax(random_options_allowed).item()
-            logging.info(f" exploration stage.")
             return action_index
 
         options = maskActions(self.Q_network.forward(state), self.portfolio_state, self.num_stocks, self.num_actions,

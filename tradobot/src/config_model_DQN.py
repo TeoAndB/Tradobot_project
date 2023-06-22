@@ -4,14 +4,13 @@ from src.config_data import *
 
 # CHANGE HERE
 # predefined parameter that sets as the maximum amount of shares to trade.
-hmax = 500
+hmax = 1000
 # liquid cash deposit
-INITIAL_AMOUNT = 1000000
+INITIAL_AMOUNT = 10000
 
 
 
 
-# TODO: add actual comission for these stock tickers - make a function
 buy_cost_pct = 0.001
 sell_cost_pct = 0.001
 
@@ -24,7 +23,7 @@ NUM_STOCKS = 3
 
 # DQN Params #####################
 #NUM_EPOCHS = 10
-NUM_EPOCHS = 2
+NUM_EPOCHS = 10
 
 
 GAMMA = 0.99
