@@ -51,8 +51,15 @@ data_alpaca: requirements
 
 
 # Train the model
-train_DQN: requirements
-	$(PYTHON_INTERPRETER) src/models/train_DQNmodel.py data/processed models
+train_DQN_return: requirements
+	$(PYTHON_INTERPRETER) src/models/train_DQNmodel_return.py data/processed models
+
+train_DQN_sharpe: requirements
+	$(PYTHON_INTERPRETER) src/models/train_DQNmodel_sharpe.py data/processed models
+
+# Train the model
+run_baseline: requirements
+	$(PYTHON_INTERPRETER) src/models/run_baseline_model.py data/processed models
 ## Delete all compiled Python files
 clean:
 	find . -type f -name "*.py[co]" -delete

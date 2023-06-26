@@ -9,6 +9,7 @@ import datetime
 from datetime import datetime
 import pandas as pd
 import logging
+import statistics
 
 from src.config_model_DQN import INITIAL_AMOUNT
 
@@ -183,6 +184,10 @@ class Portfolio:
         self.initial_daily_return_total = [0.0] * num_stocks
         self.initial_cash_left = [float(balance)] * num_stocks
         self.initial_percentage_positions = [0.0] * num_stocks  # liquid cash is included
+
+        #for monitoring sharpe ratio
+        self.portfolio_returns = []
+        self.sharpe_ratio = 0.0
 
         # for explainability
         self.portfolio_state_rows = ['total_balance', 'position_per_stock', 'position_portfolio',
@@ -549,8 +554,10 @@ class Agent(Portfolio):
         for i in range(self.portfolio_state.shape[1]):
             self.portfolio_state[7, i] = self.portfolio_state[1, i] / closing_prices[i]
 
-        # reward is daily/ min return per protfolio
-        reward = self.portfolio_state[4, 0]
+        # reward is sharpe ratio, which is mean of portfolio returns divided by standard deviation
+        self.portfolio_returns.append(self.portfolio_state[4, 0])
+        self.sharpe_ratio = statistics.mean(self.portfolio_returns)/statistics.stdev(self.portfolio_returns)
+        reward = self.sharpe_ratio
 
         # Explainability for last epoch
         if e == (self.num_epochs-1):
@@ -649,8 +656,10 @@ class Agent(Portfolio):
         for i in range(self.portfolio_state.shape[1]):
             self.portfolio_state[7, i] = self.portfolio_state[1, i] / closing_prices[i]
 
-        # reward is daily/ min return per protfolio
-        reward = self.portfolio_state[4, 0]
+        # reward is sharpe ratio, which is mean of portfolio returns divided by standard deviation
+        self.portfolio_returns.append(self.portfolio_state[4, 0])
+        self.sharpe_ratio = statistics.mean(self.portfolio_returns) / statistics.stdev(self.portfolio_returns)
+        reward = self.sharpe_ratio
 
         # Explainability for last epoch
         if e == (self.num_epochs-1):
@@ -748,8 +757,10 @@ class Agent(Portfolio):
         for i in range(self.portfolio_state.shape[1]):
             self.portfolio_state[7, i] = self.portfolio_state[1, i] / closing_prices[i]
 
-        # reward is daily/ min return per protfolio
-        reward = self.portfolio_state[4, 0]
+        # reward is sharpe ratio, which is mean of portfolio returns divided by standard deviation
+        self.portfolio_returns.append(self.portfolio_state[4, 0])
+        self.sharpe_ratio = statistics.mean(self.portfolio_returns)/statistics.stdev(self.portfolio_returns)
+        reward = self.sharpe_ratio
 
         # Explainability for last epoch
         if e == (self.num_epochs-1):
@@ -847,8 +858,10 @@ class Agent(Portfolio):
         for i in range(self.portfolio_state.shape[1]):
             self.portfolio_state[7, i] = self.portfolio_state[1, i] / closing_prices[i]
 
-        # reward is daily/ min return per protfolio
-        reward = self.portfolio_state[4, 0]
+        # reward is sharpe ratio, which is mean of portfolio returns divided by standard deviation
+        self.portfolio_returns.append(self.portfolio_state[4, 0])
+        self.sharpe_ratio = statistics.mean(self.portfolio_returns)/statistics.stdev(self.portfolio_returns)
+        reward = self.sharpe_ratio
 
         # Explainability for last epoch
         if e == (self.num_epochs-1):
@@ -946,8 +959,10 @@ class Agent(Portfolio):
         for i in range(self.portfolio_state.shape[1]):
             self.portfolio_state[7, i] = self.portfolio_state[1, i] / closing_prices[i]
 
-        # reward is daily/ min return per protfolio
-        reward = self.portfolio_state[4, 0]
+        # reward is sharpe ratio, which is mean of portfolio returns divided by standard deviation
+        self.portfolio_returns.append(self.portfolio_state[4, 0])
+        self.sharpe_ratio = statistics.mean(self.portfolio_returns)/statistics.stdev(self.portfolio_returns)
+        reward = self.sharpe_ratio
 
         # Explainability for last epoch
         if e == (self.num_epochs-1):
@@ -1045,8 +1060,10 @@ class Agent(Portfolio):
         for i in range(self.portfolio_state.shape[1]):
             self.portfolio_state[7, i] = self.portfolio_state[1, i] / closing_prices[i]
 
-        # reward is daily/ min return per protfolio
-        reward = self.portfolio_state[4, 0]
+        # reward is sharpe ratio, which is mean of portfolio returns divided by standard deviation
+        self.portfolio_returns.append(self.portfolio_state[4, 0])
+        self.sharpe_ratio = statistics.mean(self.portfolio_returns)/statistics.stdev(self.portfolio_returns)
+        reward = self.sharpe_ratio
 
         # Explainability for last epoch
         if e == (self.num_epochs-1):
@@ -1144,8 +1161,10 @@ class Agent(Portfolio):
         for i in range(self.portfolio_state.shape[1]):
             self.portfolio_state[7, i] = self.portfolio_state[1, i] / closing_prices[i]
 
-        # reward is daily/ min return per protfolio
-        reward = self.portfolio_state[4, 0]
+        # reward is sharpe ratio, which is mean of portfolio returns divided by standard deviation
+        self.portfolio_returns.append(self.portfolio_state[4, 0])
+        self.sharpe_ratio = statistics.mean(self.portfolio_returns)/statistics.stdev(self.portfolio_returns)
+        reward = self.sharpe_ratio
 
         # Explainability for last epoch
         if e == (self.num_epochs-1):
@@ -1243,8 +1262,10 @@ class Agent(Portfolio):
         for i in range(self.portfolio_state.shape[1]):
             self.portfolio_state[7, i] = self.portfolio_state[1, i] / closing_prices[i]
 
-        # reward is daily/ min return per protfolio
-        reward = self.portfolio_state[4, 0]
+        # reward is sharpe ratio, which is mean of portfolio returns divided by standard deviation
+        self.portfolio_returns.append(self.portfolio_state[4, 0])
+        self.sharpe_ratio = statistics.mean(self.portfolio_returns)/statistics.stdev(self.portfolio_returns)
+        reward = self.sharpe_ratio
 
         # Explainability for last epoch
         if e == (self.num_epochs-1):
@@ -1342,8 +1363,10 @@ class Agent(Portfolio):
         for i in range(self.portfolio_state.shape[1]):
             self.portfolio_state[7, i] = self.portfolio_state[1, i] / closing_prices[i]
 
-        # reward is daily/ min return per protfolio
-        reward = self.portfolio_state[4, 0]
+        # reward is sharpe ratio, which is mean of portfolio returns divided by standard deviation
+        self.portfolio_returns.append(self.portfolio_state[4, 0])
+        self.sharpe_ratio = statistics.mean(self.portfolio_returns)/statistics.stdev(self.portfolio_returns)
+        reward = self.sharpe_ratio
 
         # Explainability for last epoch
         if e == (self.num_epochs-1):
@@ -1441,8 +1464,10 @@ class Agent(Portfolio):
         for i in range(self.portfolio_state.shape[1]):
             self.portfolio_state[7, i] = self.portfolio_state[1, i] / closing_prices[i]
 
-        # reward is daily/ min return per protfolio
-        reward = self.portfolio_state[4, 0]
+        # reward is sharpe ratio, which is mean of portfolio returns divided by standard deviation
+        self.portfolio_returns.append(self.portfolio_state[4, 0])
+        self.sharpe_ratio = statistics.mean(self.portfolio_returns)/statistics.stdev(self.portfolio_returns)
+        reward = self.sharpe_ratio
 
         # Explainability for last epoch
         if e == (self.num_epochs-1):
@@ -1516,8 +1541,10 @@ class Agent(Portfolio):
 
         # NO BUYING AND BUYING AND SELLING ACTIONS
 
-        # reward is daily/ min return per protfolio
-        reward = self.portfolio_state[4, 0]
+        # reward is sharpe ratio, which is mean of portfolio returns divided by standard deviation
+        self.portfolio_returns.append(self.portfolio_state[4, 0])
+        self.sharpe_ratio = statistics.mean(self.portfolio_returns)/statistics.stdev(self.portfolio_returns)
+        reward = self.sharpe_ratio
 
         # Explainability for last epoch
         if e == (self.num_epochs-1):
@@ -1589,8 +1616,10 @@ class Agent(Portfolio):
         for i in range(self.portfolio_state.shape[1]):
             self.portfolio_state[4, i] = self.portfolio_state[2, 0] - prev_position_portfolio
 
-        # reward is daily/ min return per protfolio. taking it before selling everything
-        reward = self.portfolio_state[4, 0]
+        # reward is sharpe ratio, which is mean of portfolio returns divided by standard deviation
+        self.portfolio_returns.append(self.portfolio_state[4, 0])
+        self.sharpe_ratio = statistics.mean(self.portfolio_returns)/statistics.stdev(self.portfolio_returns)
+        reward = self.sharpe_ratio
 
         # SELLING EVERYTHING ####################
 
@@ -1702,8 +1731,10 @@ class Agent(Portfolio):
         for i in range(self.portfolio_state.shape[1]):
             self.portfolio_state[7, i] = self.portfolio_state[1, i] / closing_prices[i]
 
-        # reward is daily/ min return per protfolio
-        reward = self.portfolio_state[4, 0]
+        # reward is sharpe ratio, which is mean of portfolio returns divided by standard deviation
+        self.portfolio_returns.append(self.portfolio_state[4, 0])
+        self.sharpe_ratio = statistics.mean(self.portfolio_returns)/statistics.stdev(self.portfolio_returns)
+        reward = self.sharpe_ratio
 
         # Explainability for last epoch
         if e == (self.num_epochs-1):

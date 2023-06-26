@@ -4,7 +4,7 @@ from src.config_data import *
 
 # CHANGE HERE
 # predefined parameter that sets as the maximum amount of shares to trade.
-hmax = 1000
+hmax = 500
 # liquid cash deposit
 INITIAL_AMOUNT = 10000
 

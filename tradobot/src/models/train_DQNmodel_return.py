@@ -30,7 +30,13 @@ def main(input_filepath, output_filepath):
     """
     logger = logging.getLogger(__name__)
 
-    data = pd.read_csv(f'{input_filepath}/{DATASET}')[:918]
+    data = pd.read_csv(f'{input_filepath}/{DATASET}')[:5508]
+    selected_data_entries = 'entries-0-til-5508'
+    data_type = "minute_frequency_data"
+    #data_type = "daily_frequency_data"
+    reward_type = "reward_portfolio_return"
+    #reward_type = "reward_sharpe_ratio"
+
     print(f'Dataset used: {input_filepath}/{DATASET}')
 
     dataset_name = os.path.splitext(DATASET)[0]
@@ -83,9 +89,8 @@ def main(input_filepath, output_filepath):
     loss_history_per_epoch_training = [] # will populate with: [(l1,epoch1),(l2,e1),..(l1,e_n),(l2,e_n)]
     epoch_numbers_history_training = []
     cumulated_profits_list_training = [INITIAL_AMOUNT]
-    epch_numbers_history_for_profits_training = [0]
-
     cumulated_profits_list_training_per_epcoh_list = []
+    timestamps_list_training = [unique_dates_training[0]]
 
     # VALIDATION  ###########################################################
 
@@ -95,9 +100,8 @@ def main(input_filepath, output_filepath):
     loss_history_per_epoch_validation = []
     epoch_numbers_history_validation = []
     cumulated_profits_list_validation = [INITIAL_AMOUNT]
-    epoch_numbers_history_for_profits_validation = [0]
-
     cumulated_profits_list_validation_per_epcoh_list = []
+    timestamps_list_validation = [unique_dates_validation[0]]
 
 
     for e in range(agent.num_epochs):
@@ -163,11 +167,11 @@ def main(input_filepath, output_filepath):
                 print(f'Training Loss for Epoch {e}: {loss_per_epoch:.4f}')
                 loss_history_per_epoch_training.append(loss_per_epoch)
                 epoch_numbers_history_training.append(e)
-                epch_numbers_history_for_profits_training.append(e)
 
                 # track cumulated profits
                 cumulated_profit_per_epoch = agent.portfolio_state[0, 0]
                 cumulated_profits_list_training.append(cumulated_profit_per_epoch)
+                timestamps_list_training.append(agent.timestamp_portfolio)
 
         cumulated_profits_list_training_per_epcoh_list.append(cumulated_profits_list_training)
 
@@ -176,28 +180,12 @@ def main(input_filepath, output_filepath):
         df_portfolio_state.insert(0, 'TIC', agent.portfolio_state_rows)
         print(f'Training: Portfolio state for epoch {e} is \n: {df_portfolio_state}')
 
-
-
-
-        # keeping track of loss and cumulated profits
-        # if len(train_loss_history)>0:
-        #     # track loss per epoch
-        #     loss_per_epoch = sum(train_loss_history) / len(train_loss_history)
-        #     print(f'Training Loss for Epoch {e}: {loss_per_epoch:.4f}')
-        #     loss_history_per_epoch_training.append(loss_per_epoch)
-        #     epoch_numbers_history_training.append(e)
-        #     epch_numbers_history_for_profits_training.append(e)
-        #
-        #     # track cumulated profits
-        #     cumulated_profit_per_epoch = agent.portfolio_state[0,0]
-        #     cumulated_profits_list_training.append(cumulated_profit_per_epoch)
-
         # Save explainability DataFrame for the last epoch
         if e == (agent.num_epochs-1):
             current_date = datetime.datetime.now()
             date_string = current_date.strftime("%Y-%m-%d_%H_%M")
             agent.explainability_df.to_csv(
-                f'./reports/results_DQN/training_explainability_{dataset_name}_{date_string}.csv', index=False)
+                f'./reports/results_DQN/{reward_type}/{data_type}/training_last_epoch/training_explainability_{dataset_name}_{date_string}_{selected_data_entries}.csv', index=False)
 
         # VALIDATION PHASE ########################################################################
         agent.reset()
@@ -251,11 +239,11 @@ def main(input_filepath, output_filepath):
                 print(f'Validation Loss for Epoch {e}: {loss_per_epoch:.4f}')
                 loss_history_per_epoch_validation.append(loss_per_epoch)
                 epoch_numbers_history_validation.append(e)
-                epoch_numbers_history_for_profits_validation.append(e)
 
                 # track cumulated profits
                 cumulated_profit_per_epoch = agent.portfolio_state[0, 0]
                 cumulated_profits_list_validation.append(cumulated_profit_per_epoch)
+                timestamps_list_validation.append(agent.timestamp_portfolio)
 
 
             ####
@@ -267,27 +255,12 @@ def main(input_filepath, output_filepath):
         print(f'Validation: Portfolio state for epoch {e} is \n: {df_portfolio_state}')
 
 
-
-        # keeping track of loss and cumulated profits
-        # if len(val_loss_history)>0:
-        #     # track loss per epoch
-        #     loss_per_epoch = sum(val_loss_history) / len(val_loss_history)
-        #     print(f'Training Loss for Epoch {e}: {loss_per_epoch:.4f}')
-        #     loss_history_per_epoch_validation.append(loss_per_epoch)
-        #     epoch_numbers_history_validation.append(e)
-        #     epoch_numbers_history_for_profits_validation.append(e)
-        #
-        #     # track cumulated profits
-        #     cumulated_profit_per_epoch = agent.portfolio_state[0,0]
-        #     cumulated_profits_list_validation.append(cumulated_profit_per_epoch)
-
-
         # Save explainability DataFrame for the last epoch
         if e == (agent.num_epochs-1):
             current_date = datetime.datetime.now()
             date_string = current_date.strftime("%Y-%m-%d_%H_%M")
             agent.explainability_df.to_csv(
-                f'./reports/results_DQN/validation_explainability_{dataset_name}_{date_string}.csv', index=False)
+                f'./reports/results_DQN/{reward_type}/{data_type}/validation_last_epoch/validation_explainability_{dataset_name}_{date_string}_{selected_data_entries}.csv', index=False)
 
 
     current_date = datetime.datetime.now()
@@ -307,6 +280,14 @@ def main(input_filepath, output_filepath):
     ax1.grid(True)  # Add a grid
     ax1.legend()
 
+    # # Plot for cumulative profits during training
+    # for epoch, epoch_profits in enumerate(cumulated_profits_list_training_per_epcoh_list, start=1):
+    #     ax2.plot(timestamps_list_training[:len(epoch_profits)], epoch_profits, label=f'Epoch {epoch}')
+    # ax2.set_xlabel('Timestamp')
+    # ax2.set_ylabel('Cumulated Profits')
+    # ax2.set_title('Cumulated Profits during Training')
+    # ax2.grid(True)
+    # ax2.legend()
     # Plot for cumulative profits during training
     for epoch, epoch_profits in enumerate(cumulated_profits_list_training_per_epcoh_list, start=1):
         ax2.plot(epoch_profits, label=f'Epoch {epoch}')
@@ -318,21 +299,24 @@ def main(input_filepath, output_filepath):
 
     # Plot for cumulative profits during validation
     for epoch, epoch_profits in enumerate(cumulated_profits_list_validation_per_epcoh_list, start=1):
-        ax3.plot(epoch_profits, label=f'Epoch {epoch}')
-    ax3.set_xlabel('Epoch')
+        ax3.plot(timestamps_list_validation[:len(epoch_profits)], epoch_profits, label=f'Epoch {epoch}')
+    ax3.set_xlabel('Timestamp')
     ax3.set_ylabel('Cumulated Profits')
     ax3.set_title('Cumulated Profits during Validation')
     ax3.grid(True)
     ax3.legend()
 
+    # Rotate x-axis tick labels for better visibility (optional)
+    plt.xticks(rotation=45)
+
     # Adjust layout and save the figure
     plt.tight_layout()
-    plt.savefig(f'./reports/figures/DQN_training_loss_and_profits_for_{dataset_name}_{date_string}.png')
+    plt.savefig(f'./reports/figures/DQN_{reward_type}/{data_type}/DQN_training_loss_and_profits_for_{dataset_name}_{date_string}_{selected_data_entries}.png')
     plt.show()
 
     # save model
-    torch.save(agent.Q_network.state_dict(), f'{output_filepath}/trained_DQN-model_for_{dataset_name}_{date_string}.pth')
-    torch.save(agent.Q_network_val.state_dict(), f'{output_filepath}/trained_target-DQN-model_for_{dataset_name}_{date_string}.pth')
+    torch.save(agent.Q_network.state_dict(), f'{output_filepath}/trained_DQN-model_for_{dataset_name}_{date_string}_{selected_data_entries}.pth')
+    torch.save(agent.Q_network_val.state_dict(), f'{output_filepath}/trained_target-DQN-model_for_{dataset_name}_{date_string}_{selected_data_entries}.pth')
 
     # TESTING ###############################################################################################################
     print('Testing Phase')
@@ -385,7 +369,7 @@ def main(input_filepath, output_filepath):
     current_date = datetime.datetime.now()
     date_string = current_date.strftime("%Y-%m-%d_%H_%M")
     agent.explainability_df.to_csv(
-        f'./reports/results_DQN/testing_explainability_{dataset_name}_{date_string}.csv', index=False)
+        f'./reports/results_DQN/{reward_type}/{data_type}/testing/testing_explainability_{dataset_name}_{date_string}_{selected_data_entries}.csv', index=False)
 
     # Plotting
     fig, ax = plt.subplots(figsize=(10, 6))
@@ -394,7 +378,7 @@ def main(input_filepath, output_filepath):
     plt.plot(dates_testing, cumulated_profits_list_testing)
 
     # Customize the plot
-    plt.title("Cumulated Profits Over Time")
+    plt.title("Testing Period: Cumulated Profits Over Time")
     plt.xlabel("Dates")
     plt.ylabel("Cumulated Profits")
     plt.xticks(rotation=45)
@@ -408,7 +392,7 @@ def main(input_filepath, output_filepath):
     plt.subplots_adjust(bottom=0.2)
 
     # Save the figure in the specified folder path
-    plt.savefig(f'./reports/figures/DQN_testing_profits_for_{dataset_name}_{date_string}.png')
+    plt.savefig(f'./reports/figures/DQN_{reward_type}/{data_type}/DQN_testing_profits_for_{dataset_name}_{date_string}_{selected_data_entries}.png')
     plt.show()
 
 
