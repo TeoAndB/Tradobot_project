@@ -23,7 +23,7 @@ NUM_STOCKS = 3
 
 # DQN Params #####################
 #NUM_EPOCHS = 10
-NUM_EPOCHS = 4
+NUM_EPOCHS = 10
 
 
 GAMMA = 0.99
