@@ -30,8 +30,8 @@ def main(input_filepath, output_filepath):
     """
     logger = logging.getLogger(__name__)
 
-    data = pd.read_csv(f'{input_filepath}/{DATASET}')[2754:3672]
-    selected_data_entries = 'entries-2754-til-3672'
+    data = pd.read_csv(f'{input_filepath}/{DATASET}')[:918]
+    selected_data_entries = 'entries-0-til-918'
     print(f'Dataset used: {input_filepath}/{DATASET}')
 
     dataset_name = os.path.splitext(DATASET)[0]

@@ -20,6 +20,7 @@ import numpy as np
 import os
 import sklearn
 from sklearn.model_selection import train_test_split
+from matplotlib.ticker import MaxNLocator
 
 
 @click.command()
@@ -30,12 +31,11 @@ def main(input_filepath, output_filepath):
     """
     logger = logging.getLogger(__name__)
 
-    data = pd.read_csv(f'{input_filepath}/{DATASET}')[:5508]
-    selected_data_entries = 'entries-0-til-5508'
+    data = pd.read_csv(f'{input_filepath}/{DATASET}')[:306]
+    selected_data_entries = 'entries-0-til-306-test'
     data_type = "minute_frequency_data"
     #data_type = "daily_frequency_data"
     reward_type = "reward_portfolio_return"
-    #reward_type = "reward_sharpe_ratio"
 
     print(f'Dataset used: {input_filepath}/{DATASET}')
 
@@ -89,7 +89,8 @@ def main(input_filepath, output_filepath):
     loss_history_per_epoch_training = [] # will populate with: [(l1,epoch1),(l2,e1),..(l1,e_n),(l2,e_n)]
     epoch_numbers_history_training = []
     cumulated_profits_list_training = [INITIAL_AMOUNT]
-    cumulated_profits_list_training_per_epcoh_list = []
+    cumulated_profits_list_training_per_epcoh_list = [INITIAL_AMOUNT]
+    epoch_numbers_history_training_for_profits = [0]
     timestamps_list_training = [unique_dates_training[0]]
 
     # VALIDATION  ###########################################################
@@ -100,12 +101,14 @@ def main(input_filepath, output_filepath):
     loss_history_per_epoch_validation = []
     epoch_numbers_history_validation = []
     cumulated_profits_list_validation = [INITIAL_AMOUNT]
-    cumulated_profits_list_validation_per_epcoh_list = []
+    cumulated_profits_list_validation_per_epcoh_list = [INITIAL_AMOUNT]
+    epoch_numbers_history_val_for_profits = [0]
+
     timestamps_list_validation = [unique_dates_validation[0]]
 
 
     for e in range(agent.num_epochs):
-        print(f'Epoch {e}')
+        print(f'Epoch {e+1}')
         data_window = train_data.loc[(train_data['date'] == unique_dates_training[0])]
         initial_state, agent = getState(data_window, 0, agent)
         closing_prices = data_window['close'].tolist()
@@ -162,23 +165,26 @@ def main(input_filepath, output_filepath):
 
             if (t%100 == 0 or t==(l_training-1)) and len(train_loss_history)>0:
                 loss_per_epoch_log = sum(train_loss_history) / len(train_loss_history)
-                print(f'Epoch {e}, Training Loss: {loss_per_epoch_log:.4f}')
-                loss_per_epoch = sum(train_loss_history) / len(train_loss_history)
-                print(f'Training Loss for Epoch {e}: {loss_per_epoch:.4f}')
-                loss_history_per_epoch_training.append(loss_per_epoch)
-                epoch_numbers_history_training.append(e)
+                print(f'Epoch {e+1}, Training Loss: {loss_per_epoch_log:.4f}')
 
-                # track cumulated profits
-                cumulated_profit_per_epoch = agent.portfolio_state[0, 0]
-                cumulated_profits_list_training.append(cumulated_profit_per_epoch)
-                timestamps_list_training.append(agent.timestamp_portfolio)
+                if e==(agent.num_epochs-1):
+                    # track cumulated profits
+                    cumulated_profit_per_epoch = agent.portfolio_state[0, 0]
+                    cumulated_profits_list_training.append(cumulated_profit_per_epoch)
+                    timestamps_list_training.append(agent.timestamp_portfolio)
 
-        cumulated_profits_list_training_per_epcoh_list.append(cumulated_profits_list_training)
+        cumulated_profits_list_training_per_epcoh_list.append(agent.portfolio_state[0, 0])
+        epoch_numbers_history_training_for_profits.append(e+1)
+
+        loss_per_epoch = sum(train_loss_history) / len(train_loss_history)
+        print(f'Training Loss for Epoch {e+1}: {loss_per_epoch:.4f}')
+        loss_history_per_epoch_training.append(loss_per_epoch)
+        epoch_numbers_history_training.append(e+1)
 
         # printing portfolio state
         df_portfolio_state = pd.DataFrame(agent.portfolio_state, columns = cols_stocks)
         df_portfolio_state.insert(0, 'TIC', agent.portfolio_state_rows)
-        print(f'Training: Portfolio state for epoch {e} is \n: {df_portfolio_state}')
+        print(f'Training: Portfolio state for epoch {e+1} is \n: {df_portfolio_state}')
 
         # Save explainability DataFrame for the last epoch
         if e == (agent.num_epochs-1):
@@ -235,24 +241,27 @@ def main(input_filepath, output_filepath):
                 val_loss_history.extend(batch_loss_history)
 
             if (t%50 == 0 or t==l_validation-1) and len(train_loss_history)>0:
-                loss_per_epoch = sum(val_loss_history) / len(val_loss_history)
-                print(f'Validation Loss for Epoch {e}: {loss_per_epoch:.4f}')
-                loss_history_per_epoch_validation.append(loss_per_epoch)
-                epoch_numbers_history_validation.append(e)
+                loss_per_epoch_log = sum(val_loss_history) / len(val_loss_history)
+                print(f'Validation Loss for Epoch {e+1}: {loss_per_epoch_log:.4f}')
 
-                # track cumulated profits
+            if e == (agent.num_epochs - 1):
                 cumulated_profit_per_epoch = agent.portfolio_state[0, 0]
                 cumulated_profits_list_validation.append(cumulated_profit_per_epoch)
                 timestamps_list_validation.append(agent.timestamp_portfolio)
 
 
-            ####
-        cumulated_profits_list_validation_per_epcoh_list.append(cumulated_profits_list_validation)
+        ####
+        cumulated_profits_list_validation_per_epcoh_list.append(agent.portfolio_state[0, 0])
+        epoch_numbers_history_val_for_profits.append(e+1)
+
+        loss_per_epoch = sum(val_loss_history) / len(val_loss_history)
+        loss_history_per_epoch_validation.append(loss_per_epoch)
+        epoch_numbers_history_validation.append(e+1)
 
         # printing portfolio state for validation at the end of the epoch run
         df_portfolio_state = pd.DataFrame(agent.portfolio_state, columns = cols_stocks)
         df_portfolio_state.insert(0, 'TIC', agent.portfolio_state_rows)
-        print(f'Validation: Portfolio state for epoch {e} is \n: {df_portfolio_state}')
+        print(f'Validation: Portfolio state for epoch {e+1} is \n: {df_portfolio_state}')
 
 
         # Save explainability DataFrame for the last epoch
@@ -268,7 +277,7 @@ def main(input_filepath, output_filepath):
 
 
     # PLOTTING: Loss and Cumulated profits #######################################################
-    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 6))
+    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(20, 7))
 
     # Plot for training loss
     ax1.plot(epoch_numbers_history_training, loss_history_per_epoch_training, label='Training Loss')
@@ -278,39 +287,47 @@ def main(input_filepath, output_filepath):
     ax1.set_ylabel('Running Loss')
     ax1.set_title('Training and Validation Loss')
     ax1.grid(True)  # Add a grid
+    ax1.xaxis.set_major_locator(MaxNLocator(integer=True))
     ax1.legend()
 
-    # # Plot for cumulative profits during training
-    # for epoch, epoch_profits in enumerate(cumulated_profits_list_training_per_epcoh_list, start=1):
-    #     ax2.plot(timestamps_list_training[:len(epoch_profits)], epoch_profits, label=f'Epoch {epoch}')
-    # ax2.set_xlabel('Timestamp')
-    # ax2.set_ylabel('Cumulated Profits')
-    # ax2.set_title('Cumulated Profits during Training')
-    # ax2.grid(True)
-    # ax2.legend()
-    # Plot for cumulative profits during training
-    for epoch, epoch_profits in enumerate(cumulated_profits_list_training_per_epcoh_list, start=1):
-        ax2.plot(epoch_profits, label=f'Epoch {epoch}')
+
+    ax2.plot(epoch_numbers_history_training_for_profits, cumulated_profits_list_training_per_epcoh_list, label='Training Profit')
+    ax2.plot(epoch_numbers_history_val_for_profits, cumulated_profits_list_validation_per_epcoh_list, label='Validation Profit',
+             color='orange')
     ax2.set_xlabel('Epoch')
-    ax2.set_ylabel('Cumulated Profits')
-    ax2.set_title('Cumulated Profits during Training')
-    ax2.grid(True)
+    ax2.set_ylabel('Running Loss')
+    ax2.set_title('Training and Validation Cumulated Profits')
+    ax2.grid(True)  # Add a grid
+    ax2.xaxis.set_major_locator(MaxNLocator(integer=True))
     ax2.legend()
 
     # Plot for cumulative profits during validation
-    for epoch, epoch_profits in enumerate(cumulated_profits_list_validation_per_epcoh_list, start=1):
-        ax3.plot(timestamps_list_validation[:len(epoch_profits)], epoch_profits, label=f'Epoch {epoch}')
+    ax3.plot(timestamps_list_validation, cumulated_profits_list_validation)
     ax3.set_xlabel('Timestamp')
     ax3.set_ylabel('Cumulated Profits')
-    ax3.set_title('Cumulated Profits during Validation')
+    ax3.set_title('Cumulated Profits during Validation (Last Epoch)')
     ax3.grid(True)
     ax3.legend()
 
-    # Rotate x-axis tick labels for better visibility (optional)
-    plt.xticks(rotation=45)
+    # Get the number of timestamps in the validation data
+    num_timestamps = len(timestamps_list_validation)
+
+    # Calculate the step size for x-axis ticks
+    step = max(1, num_timestamps // 6)  # Ensure at least 1 tick and round down
+
+    # Set the x-axis tick locations and labels
+    x_ticks = np.linspace(0, num_timestamps - 1, 6, dtype=int)
+    x_tick_labels = [timestamps_list_validation[i] for i in x_ticks]
+
+    # Set the x-axis tick locations and labels
+    ax3.set_xticks(x_ticks)
+    ax3.set_xticklabels(x_tick_labels, rotation=45)
 
     # Adjust layout and save the figure
-    plt.tight_layout()
+    # Set the suptitle for the entire figure
+    fig.suptitle('DQN RL Agent Training and Validation with Total Balance Return as reward')
+    # Adjust the spacing at the top of the figure
+    fig.tight_layout(rect=[0, 0.03, 1, 0.98])
     plt.savefig(f'./reports/figures/DQN_{reward_type}/{data_type}/DQN_training_loss_and_profits_for_{dataset_name}_{date_string}_{selected_data_entries}.png')
     plt.show()
 
