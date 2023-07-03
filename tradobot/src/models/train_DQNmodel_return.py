@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 from dotenv import find_dotenv, load_dotenv
 
-from src.config_model_DQN import *
+from src.config_model_DQN_return import *
 from src.models.DQN_model_w_return import Agent, Portfolio, getState, maskActions
 #from functions import *
 
@@ -332,9 +332,20 @@ def main(input_filepath, output_filepath):
     plt.show()
 
     # save model
-    torch.save(agent.Q_network.state_dict(), f'{output_filepath}/trained_DQN-model_for_{dataset_name}_{date_string}_{selected_data_entries}.pth')
-    torch.save(agent.Q_network_val.state_dict(), f'{output_filepath}/trained_target-DQN-model_for_{dataset_name}_{date_string}_{selected_data_entries}.pth')
+    torch.save(agent.Q_network.state_dict(), f'{output_filepath}/reward_return/trained_DQN-model_for_{dataset_name}_{date_string}_{selected_data_entries}.pth')
+    torch.save(agent.Q_network_val.state_dict(), f'{output_filepath}/reward_return/trained_target-DQN-model_for_{dataset_name}_{date_string}_{selected_data_entries}.pth')
 
+    # sva econfiguration file
+    with open('./src/config_model_DQN_return.py', 'r') as file:
+        config_contents = file.read()
+
+    # Extract the relevant data from the config_contents string
+    config_lines = [line.strip() for line in config_contents.split('\n') if '=' in line]
+    config_data = '\n'.join(config_lines)
+    config_text = config_data
+
+    with open( f'{output_filepath}/reward_return/config_file_for_{dataset_name}_{date_string}_{selected_data_entries}.txt', 'w') as file:
+        file.write(config_text)
     # # TESTING ###############################################################################################################
     # print('Testing Phase')
     # agent.reset()

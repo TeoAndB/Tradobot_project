@@ -10,7 +10,7 @@ from datetime import datetime
 import pandas as pd
 import logging
 
-from src.config_model_DQN import INITIAL_AMOUNT
+from src.config_model_DQN_return import INITIAL_AMOUNT
 
 def maskActions_evaluation(options, portfolio_state, num_stocks, num_actions, actions_dict, h, closing_prices, device):
     '''

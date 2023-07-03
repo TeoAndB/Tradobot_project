@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 from dotenv import find_dotenv, load_dotenv
 
-from src.config_model_DQN import *
+from src.config_model_DQN_return import *
 from src.models.DQN_model_fin import Agent, Portfolio, getState, maskActions
 #from functions import *
 

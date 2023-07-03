@@ -11,7 +11,7 @@ import pandas as pd
 import logging
 import statistics
 
-from src.config_model_DQN import INITIAL_AMOUNT
+from src.config_model_DQN_sharpe import INITIAL_AMOUNT
 
 def maskActions_evaluation(options, portfolio_state, num_stocks, num_actions, actions_dict, h, closing_prices, device):
     '''
@@ -352,7 +352,7 @@ class Agent(Portfolio):
 
         self.optimizer = torch.optim.Adam(self.Q_network.parameters(), lr=self.learning_rate)
 
-        self.loss_fn = torch.nn.MSELoss()
+        self.loss_fn = torch.nn.HuberLoss()
 
     def remember(self, state, actions, closing_prices, reward, next_state, done):
         self.memory.append((state, actions, closing_prices, reward, next_state, done))
