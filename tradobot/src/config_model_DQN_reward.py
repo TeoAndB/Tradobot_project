@@ -17,10 +17,8 @@ sell_cost_pct = 0.001
 
 
 # DATA PARAMETERS ####################################################
-DATASET = "dataset_1Min_AMZN-MSFT-SPY.csv"
-DATASET_INDEX = 1
+DATASET = "dataset1_1Day_HA-WBA-INCY.csv"
 NUM_STOCKS = 3
-
 # DQN Params #####################
 #NUM_EPOCHS = 10
 NUM_EPOCHS = 10
@@ -30,7 +28,7 @@ GAMMA = 0.99
 EPSILON = 1.0
 EPSILON_MIN = 0.01
 EPSILON_DECAY = 0.9999
-LEARNING_RATE = 0.001
+LEARNING_RATE = 0.0001
 # BATCH_SIZE = 32
 BATCH_SIZE = 68
 TAU = 1e-3

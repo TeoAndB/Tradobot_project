@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 from dotenv import find_dotenv, load_dotenv
 
-from src.config_model_DQN import *
+from src.config_model_DQN_reward import *
 from src.models.DQN_model_w_return import Agent, Portfolio, getState, maskActions
 #from functions import *
 
@@ -31,11 +31,12 @@ def main(input_filepath, output_filepath):
     """
     logger = logging.getLogger(__name__)
 
-    data = pd.read_csv(f'{input_filepath}/{DATASET}')[:306]
-    selected_data_entries = 'entries-0-til-306-test'
-    data_type = "minute_frequency_data"
-    #data_type = "daily_frequency_data"
+    data = pd.read_csv(f'{input_filepath}/{DATASET}')
+    selected_data_entries = 'entries-all'
+    #data_type = "minute_frequency_data"
+    data_type = "daily_frequency_data"
     reward_type = "reward_portfolio_return"
+    run_no = 'run_1'
 
     print(f'Dataset used: {input_filepath}/{DATASET}')
 
@@ -191,7 +192,7 @@ def main(input_filepath, output_filepath):
             current_date = datetime.datetime.now()
             date_string = current_date.strftime("%Y-%m-%d_%H_%M")
             agent.explainability_df.to_csv(
-                f'./reports/results_DQN/{reward_type}/{data_type}/training_last_epoch/training_explainability_{dataset_name}_{date_string}_{selected_data_entries}.csv', index=False)
+                f'./reports/results_DQN/{reward_type}/{data_type}/training_last_epoch/training_explainability_{dataset_name}_{date_string}_{selected_data_entries}_{run_no}.csv', index=False)
 
         # VALIDATION PHASE ########################################################################
         agent.reset()
@@ -269,7 +270,7 @@ def main(input_filepath, output_filepath):
             current_date = datetime.datetime.now()
             date_string = current_date.strftime("%Y-%m-%d_%H_%M")
             agent.explainability_df.to_csv(
-                f'./reports/results_DQN/{reward_type}/{data_type}/validation_last_epoch/validation_explainability_{dataset_name}_{date_string}_{selected_data_entries}.csv', index=False)
+                f'./reports/results_DQN/{reward_type}/{data_type}/validation_last_epoch/validation_explainability_{dataset_name}_{date_string}_{selected_data_entries}_{run_no}.csv', index=False)
 
 
     current_date = datetime.datetime.now()
@@ -328,12 +329,22 @@ def main(input_filepath, output_filepath):
     fig.suptitle('DQN RL Agent Training and Validation with Total Balance Return as reward')
     # Adjust the spacing at the top of the figure
     fig.tight_layout(rect=[0, 0.03, 1, 0.98])
-    plt.savefig(f'./reports/figures/DQN_{reward_type}/{data_type}/DQN_training_loss_and_profits_for_{dataset_name}_{date_string}_{selected_data_entries}.png')
+    plt.savefig(f'./reports/figures/DQN_{reward_type}/{data_type}/DQN_training_loss_and_profits_for_{dataset_name}_{date_string}_{selected_data_entries}_{run_no}.png')
     plt.show()
 
     # save model
-    torch.save(agent.Q_network.state_dict(), f'{output_filepath}/trained_DQN-model_for_{dataset_name}_{date_string}_{selected_data_entries}.pth')
-    torch.save(agent.Q_network_val.state_dict(), f'{output_filepath}/trained_target-DQN-model_for_{dataset_name}_{date_string}_{selected_data_entries}.pth')
+    torch.save(agent.Q_network.state_dict(), f'{output_filepath}/reward_return/trained_DQN-model_for_{dataset_name}_{date_string}_{selected_data_entries}_{run_no}.pth')
+    torch.save(agent.Q_network_val.state_dict(), f'{output_filepath}/reward_return/trained_target-DQN-model_for_{dataset_name}_{date_string}_{selected_data_entries}_{run_no}.pth')
+
+    # save configuration file for the model
+    with open('./src/config_model_DQN_sharpe.py', 'r') as file:
+        config_contents = file.read()
+    config_lines = [line.strip() for line in config_contents.split('\n') if '=' in line]
+    config_data = '\n'.join(config_lines)
+    config_text = config_data
+
+    with open(f'{output_filepath}/reward_return/config_parameters_for_{dataset_name}_{date_string}_{selected_data_entries}.txt', 'w') as file:
+        file.write(config_text)
 
     # # TESTING ###############################################################################################################
     # print('Testing Phase')
