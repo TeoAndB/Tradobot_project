@@ -251,6 +251,7 @@ class Portfolio:
 
     def reset_portfolio(self):
         self.portfolio_state = np.copy(self.initial_portfolio_state)
+        self.portfolio_returns = []
 
 class DQNNetwork(nn.Module):
     def __init__(self, num_stocks, num_actions, num_features):

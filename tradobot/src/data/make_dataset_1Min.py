@@ -35,8 +35,7 @@ def main(input_filepath, output_filepath):
     df = pd.DataFrame()
 
     for TICKER in TICKER_LIST:
-        # TODO: remove [:2000]
-        df = pd.read_csv(f'{input_filepath}/{TICKER}_FirstRateDatacom1.txt', sep=",", header=None)[:3000]
+        df = pd.read_csv(f'{input_filepath}/{TICKER}_FirstRateDatacom1.txt', sep=",", header=None)
         # add columns
         df.columns = ['date', 'open', 'high', 'low', 'close', 'volume']
         # Extract the date column
@@ -49,8 +48,7 @@ def main(input_filepath, output_filepath):
     print(f'unique dates are {unique_dates[:30]}')
 
     for TICKER in TICKER_LIST:
-        # TODO: remove [:1000]
-        df = pd.read_csv(f'{input_filepath}/{TICKER}_FirstRateDatacom1.txt', sep=",", header=None)[:3000]
+        df = pd.read_csv(f'{input_filepath}/{TICKER}_FirstRateDatacom1.txt', sep=",", header=None)
         # add columns
         df.columns = ['date', 'open', 'high', 'low', 'close', 'volume']
 

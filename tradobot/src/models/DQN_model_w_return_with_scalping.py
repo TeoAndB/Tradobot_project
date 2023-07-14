@@ -274,7 +274,6 @@ class DQNNetwork(nn.Module):
         h_outputs = []
         f_outputs = []
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        # TODO: refactor so that x is always a tensor of size BATCH x 3 x 27, output should be BATCH x actions. x stocks
         if type(x) == tuple:
             x = torch.from_numpy(x[0]).to(device)
         else:
@@ -383,38 +382,24 @@ class Agent(Portfolio):
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         # retrieve recent buffer_size long memory
-        # TODO: sample batch_size RANDOM elements from the buffer.
         mini_batch = [self.memory[i] for i in range(len(self.memory) - self.batch_size + 1, len(self.memory))]
 
         running_loss = 0.0
         random.seed(42)
 
-        ss, aa, closing_prices, reward, next_state, done = zip(*mini_batch)
-
-        ss = np.stack( [s[0].flatten() for s in ss] )
-        self.Q_network_val.forward(ss).shape
-
-        self.Q_network.forward(state[0])
-
         for state, actions, closing_prices, reward, next_state, done in mini_batch:
-            ss.append(state)
-            aa.append(actions)[0]
-            rr.append(reward[0])
-
 
             if not done:
                 self.Q_network_val.eval()
                 with torch.no_grad():
-                    # TODO: fix with the batches - diviede by B
+
                     target_rewards = reward + self.gamma * torch.max(self.Q_network_val.forward(next_state)).item()
-                    # test that this does what you expect.
-                    #'expRe
             else:
                 target_rewards = reward
 
             self.Q_network.train()
 
-            actions_tensor = torch.tensor([actions[0] + 13 * actions[1]], dtype=torch.long).to(device)  # Convert actions[0] to a tensor
+            actions_tensor = torch.tensor([actions[0]], dtype=torch.long).to(device)  # Convert actions[0] to a tensor
 
             expected_rewards = torch.gather(self.Q_network.forward(state), dim=0, index=actions_tensor).to(device)
 
@@ -453,10 +438,10 @@ class Agent(Portfolio):
             if not done:
                 self.Q_network_val.eval()
                 with torch.no_grad():
-
                     target_rewards = reward + self.gamma * torch.max(self.Q_network_val.forward(next_state)).item()
             else:
                 target_rewards = reward
+
 
             self.Q_network.eval()
 
@@ -584,7 +569,7 @@ class Agent(Portfolio):
             self.portfolio_state[7, i] = self.portfolio_state[1, i] / closing_prices[i]
 
         # reward is daily/ min return per total balance
-        reward = (self.portfolio_state[0, 0] - prev_balance)/self.initial_total_balance
+        reward = (prev_balance- self.portfolio_state[0, 0])/self.initial_total_balance
 
         # Explainability for last epoch
         if e == (self.num_epochs-1):
@@ -687,7 +672,7 @@ class Agent(Portfolio):
             self.portfolio_state[7, i] = self.portfolio_state[1, i] / closing_prices[i]
 
         # reward is daily/ min return per total balance
-        reward = (self.portfolio_state[0, 0] - prev_balance)/self.initial_total_balance
+        reward = (prev_balance- self.portfolio_state[0, 0])/self.initial_total_balance
 
         # Explainability for last epoch
         if e == (self.num_epochs-1):
@@ -789,7 +774,7 @@ class Agent(Portfolio):
             self.portfolio_state[7, i] = self.portfolio_state[1, i] / closing_prices[i]
 
         # reward is daily/ min return per total balance
-        reward = (self.portfolio_state[0, 0] - prev_balance)/self.initial_total_balance
+        reward = (prev_balance- self.portfolio_state[0, 0])/self.initial_total_balance
 
         # Explainability for last epoch
         if e == (self.num_epochs-1):
@@ -891,7 +876,7 @@ class Agent(Portfolio):
             self.portfolio_state[7, i] = self.portfolio_state[1, i] / closing_prices[i]
 
         # reward is daily/ min return per total balance
-        reward = (self.portfolio_state[0, 0] - prev_balance)/self.initial_total_balance
+        reward = (prev_balance- self.portfolio_state[0, 0])/self.initial_total_balance
 
         # Explainability for last epoch
         if e == (self.num_epochs-1):
@@ -993,7 +978,7 @@ class Agent(Portfolio):
             self.portfolio_state[7, i] = self.portfolio_state[1, i] / closing_prices[i]
 
         # reward is daily/ min return per total balance
-        reward = (self.portfolio_state[0, 0] - prev_balance)/self.initial_total_balance
+        reward = (prev_balance- self.portfolio_state[0, 0])/self.initial_total_balance
 
         # Explainability for last epoch
         if e == (self.num_epochs-1):
@@ -1095,7 +1080,7 @@ class Agent(Portfolio):
             self.portfolio_state[7, i] = self.portfolio_state[1, i] / closing_prices[i]
 
         # reward is daily/ min return per total balance
-        reward = (self.portfolio_state[0, 0] - prev_balance)/self.initial_total_balance
+        reward = (prev_balance- self.portfolio_state[0, 0])/self.initial_total_balance
 
         # Explainability for last epoch
         if e == (self.num_epochs-1):
@@ -1197,7 +1182,7 @@ class Agent(Portfolio):
             self.portfolio_state[7, i] = self.portfolio_state[1, i] / closing_prices[i]
 
         # reward is daily/ min return per total balance
-        reward = (self.portfolio_state[0, 0] - prev_balance)/self.initial_total_balance
+        reward = (prev_balance- self.portfolio_state[0, 0])/self.initial_total_balance
 
         # Explainability for last epoch
         if e == (self.num_epochs-1):
@@ -1299,7 +1284,7 @@ class Agent(Portfolio):
             self.portfolio_state[7, i] = self.portfolio_state[1, i] / closing_prices[i]
 
         # reward is daily/ min return per total balance
-        reward = (self.portfolio_state[0, 0] - prev_balance)/self.initial_total_balance
+        reward = (prev_balance- self.portfolio_state[0, 0])/self.initial_total_balance
 
         # Explainability for last epoch
         if e == (self.num_epochs-1):
@@ -1401,7 +1386,7 @@ class Agent(Portfolio):
             self.portfolio_state[7, i] = self.portfolio_state[1, i] / closing_prices[i]
 
         # reward is daily/ min return per total balance
-        reward = (self.portfolio_state[0, 0] - prev_balance)/self.initial_total_balance
+        reward = (prev_balance- self.portfolio_state[0, 0])/self.initial_total_balance
 
         # Explainability for last epoch
         if e == (self.num_epochs-1):
@@ -1503,7 +1488,7 @@ class Agent(Portfolio):
             self.portfolio_state[7, i] = self.portfolio_state[1, i] / closing_prices[i]
 
         # reward is daily/ min return per total balance
-        reward = (self.portfolio_state[0, 0] - prev_balance)/self.initial_total_balance
+        reward = (prev_balance- self.portfolio_state[0, 0])/self.initial_total_balance
 
         # Explainability for last epoch
         if e == (self.num_epochs-1):
@@ -1581,7 +1566,7 @@ class Agent(Portfolio):
         # NO BUYING AND BUYING AND SELLING ACTIONS
 
         # reward is daily/ min return per total balance
-        reward = (self.portfolio_state[0, 0] - prev_balance)/self.initial_total_balance
+        reward = (prev_balance- self.portfolio_state[0, 0])/self.initial_total_balance
 
         # Explainability for last epoch
         if e == (self.num_epochs-1):
@@ -1657,7 +1642,7 @@ class Agent(Portfolio):
             self.portfolio_state[4, i] = self.portfolio_state[2, 0] - prev_position_portfolio
 
         # reward is daily/ min return per protfolio. taking it before selling everything
-        reward = (self.portfolio_state[0, 0] - prev_balance)/self.initial_total_balance
+        reward = (prev_balance- self.portfolio_state[0, 0])/self.initial_total_balance
         # SELLING EVERYTHING ####################
 
         #  total balance after selling
@@ -1772,7 +1757,7 @@ class Agent(Portfolio):
             self.portfolio_state[7, i] = self.portfolio_state[1, i] / closing_prices[i]
 
         # reward is daily/ min return per total balance
-        reward = (self.portfolio_state[0, 0] - prev_balance)/self.initial_total_balance
+        reward = (prev_balance- self.portfolio_state[0, 0])/self.initial_total_balance
 
         # Explainability for last epoch
         if e == (self.num_epochs-1):
