@@ -18,9 +18,11 @@ sell_cost_pct = 0.001
 
 # DATA PARAMETERS ####################################################
 DATASET = "dataset1_1Day_HA-WBA-INCY.csv"
+<<<<<<< HEAD:tradobot/src/config_model_DQN_sharpe.py
 DATASET_INDEX = 1
+=======
+>>>>>>> origin/master:tradobot/src/config_model_DQN_reward.py
 NUM_STOCKS = 3
-
 # DQN Params #####################
 #NUM_EPOCHS = 10
 NUM_EPOCHS = 10

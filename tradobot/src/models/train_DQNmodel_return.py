@@ -46,7 +46,7 @@ def main(input_filepath, output_filepath):
     data = pd.read_csv(f'{input_filepath}/{DATASET}')
     #data = normalize_dataframe(data.copy())
 
-    selected_data_entries = 'HuberLoss_wDropout_wWeightDecay'
+    selected_data_entries = 'HuberLoss_wDropout_wWeightDecay_wbatch_2ndrun'
     #data_type = "minute_frequency_data"
     data_type = "daily_frequency_data"
     reward_type = "reward_portfolio_return"
@@ -125,7 +125,7 @@ def main(input_filepath, output_filepath):
     for e in range(agent.num_epochs):
         print(f'Epoch {e+1}')
         data_window = train_data.loc[(train_data['date'] == unique_dates_training[0])]
-        initial_state, agent = getState(data_window, 0, agent)
+        initial_state = getState(data_window, 0, agent)
         closing_prices = data_window['close'].tolist()
 
         cumulated_profits_list_training = [INITIAL_AMOUNT]
@@ -133,6 +133,7 @@ def main(input_filepath, output_filepath):
         cumulated_profits_list_validation = [INITIAL_AMOUNT]
 
         agent.reset()
+        print(f' agent memory is {len(agent.memory)}')
 
         # TRAINING PHASE ##################################################################
 
@@ -161,7 +162,7 @@ def main(input_filepath, output_filepath):
             reward = agent.execute_action(action_index_for_stock_i, closing_prices, stock_i, h, e, dates)
 
             # Next state should append the t+1 data and portfolio_state. It also updates the position of agent portfolio based on agent position
-            next_state, agent = getState(data_window, t+1, agent)
+            next_state = getState(data_window, t+1, agent)
 
             done = True if t==l_training-1 else False
 
@@ -247,7 +248,7 @@ def main(input_filepath, output_filepath):
             reward = agent.execute_action(action_index_for_stock_i, closing_prices, stock_i, h, e, dates)
 
             # Next state should append the t+1 data and portfolio_state. It also updates the position of agent portfolio based on agent position
-            next_state, agent = getState(data_window, t+1, agent)
+            next_state = getState(data_window, t+1, agent)
 
             done = True if t==l_validation-1 else False
 
@@ -263,7 +264,7 @@ def main(input_filepath, output_filepath):
                 batch_loss_history = agent.batch_loss_history.copy()
                 val_loss_history.extend(batch_loss_history)
 
-            if (t%50 == 0 or t==l_validation-1) and len(train_loss_history)>0:
+            if (t%50 == 0 or t==l_validation-1) and len(val_loss_history)>0:
                 loss_per_epoch_log = sum(val_loss_history) / len(val_loss_history)
                 print(f'Validation Loss for Epoch {e+1}: {loss_per_epoch_log:.4f}')
                 print(f'Epoch {e+1}, Balance: {agent.portfolio_state[0,0]:.4f}')
@@ -434,7 +435,7 @@ def main(input_filepath, output_filepath):
         dates_testing.append(dates[0])
 
         # Next state should append the t+1 data and portfolio_state. It also updates the position of agent portfolio based on agent position
-        next_state, agent = getState(data_window, t + 1, agent)
+        next_state = getState(data_window, t + 1, agent)
         state = next_state
 
         done = True if t == l_testing - 1 else False

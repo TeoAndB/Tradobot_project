@@ -13,10 +13,6 @@ import logging
 
 from src.config_model_DQN_return import INITIAL_AMOUNT, WEIGHT_DECAY, NUM_ACTIONS
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-#device = torch.device('cpu')
-
-
 def maskActions_evaluation(options, portfolio_state, num_stocks, num_actions, actions_dict, h, closing_prices, device):
     '''
     Function to mask/ disregard certain actions according to the portfolio of the agent.
@@ -157,7 +153,7 @@ def maskActions(options, portfolio_state, num_stocks, num_actions, actions_dict,
 def getState(data_window, t, agent):
     data_window = data_window.fillna(0.0)
     # prev_closing_prices = list of prev_closing_prices
-    # encode the date as a number signifying day interval length between curr date and past date
+    # encode the date as a number
     reference_date = datetime(2008, 9, 15)
     data_window['date'] = pd.to_datetime(data_window['date'])
     data_window['Date_Encoded'] = (data_window['date'] - reference_date).dt.days
@@ -172,7 +168,7 @@ def getState(data_window, t, agent):
 
     if t == 0:
 
-        portfolio_arr = np.array(agent.portfolio_state.copy()).T
+        portfolio_arr = agent.portfolio_state.T
 
         state = np.column_stack((data_window_arr, portfolio_arr))
 
@@ -184,10 +180,10 @@ def getState(data_window, t, agent):
         #     no_shares = agent.portfolio_state[1,i]/float(prev_closing_prices[i])
         #     agent.portfolio_state[1,i] = no_shares * closing_prices[i]
 
-        portfolio_arr = np.array(agent.portfolio_state.copy()).T
+        portfolio_arr = agent.portfolio_state.T
         state = np.column_stack((data_window_arr, portfolio_arr)).astype(np.float64)
 
-    return state
+    return state, agent
 
 
 class Portfolio:
@@ -253,7 +249,7 @@ class Portfolio:
         self.portfolio_state = np.copy(self.initial_portfolio_state)
 
 class DQNNetwork(nn.Module):
-    def __init__(self, num_stocks, num_actions, num_features, batch_size):
+    def __init__(self, num_stocks, num_actions, num_features):
         super().__init__()
 
         self.num_stocks = num_stocks
@@ -261,68 +257,58 @@ class DQNNetwork(nn.Module):
         self.h_number = int(np.floor(2 / 3 * self.num_features))  # recommended size
         self.f_number = self.h_number * 2  # since input will be double
         self.num_actions = num_actions
-        self.num_actions_all = num_actions * num_stocks
 
         # define layers
         self.linear_h = nn.Linear(self.num_features, self.h_number)
         self.linear_f = nn.Linear(self.f_number, self.num_actions)
-
-        # self.linear_h = nn.Linear(self.num_stocks * self.num_features, self.h_number)
-        # self.linear_f = nn.Linear(self.h_number, self.num_actions_all)
         self.dropout = nn.Dropout(p=0.2)
-        self.activation = torch.nn.ReLU()
-        self.activation_2 = torch.nn.Sigmoid()
 
         # Initializing the weights with the Xavier initialization method
         torch.nn.init.xavier_uniform_(self.linear_h.weight)
+        # Initializing the weights with the Xavier initialization method
         torch.nn.init.xavier_uniform_(self.linear_f.weight)
 
+        self.activation = torch.nn.ReLU()
 
     def forward(self, x):
         h_outputs = []
         f_outputs = []
-
-
-        # x is batch_size x num_stocks x num_features
-        x = torch.from_numpy(x).to(device)
-
-        # x = x.reshape((-1,self.num_stocks * self.num_features))
-        # x = x.view(-1, self.num_stocks * self.num_features)
-        # print(x.shape)
-        # if x.dtype != self.linear_h.weight.dtype:
-        #     x = x.to(self.linear_h.weight.dtype)
-        # x = self.linear_h(x)
-        # x = self.activation(x)
-        # x = self.linear_f(x)
-        # x = self.activation_2(x)
-
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        #TODO: refactor so that x is always a tensor of size BATCH x 3 x 27, output should be BATCH x actions. x stocks
+        if type(x) == tuple:
+            x = torch.from_numpy(x[0]).to(device)
+        else:
+            x = torch.from_numpy(x).to(device)
         for i in range(self.num_stocks):
-            x_i = x[:, i, :].float()
-            # x_i = x_i.reshape((-1, self.num_features))
+            x_i = x[i, :].float()
             x_i = self.linear_h(x_i)
             x_i = self.dropout(x_i)
             x_i = self.activation(x_i)
             h_outputs.append(x_i)
         for i in range(self.num_stocks):
-            h_outputs_stock_i = torch.unsqueeze(h_outputs[i], dim=1)
+            h_outputs_stock_i = h_outputs[i]
             h_outputs_temp = h_outputs.copy()
             h_outputs_temp.pop(i)
-            h_outputs_without_i_tensor = torch.stack(h_outputs_temp, dim=1)
+            h_outputs_without_i_tensor = torch.vstack(h_outputs_temp)
             # create a vector with h_outputs for stock i and mean of stocks i+1,i+2...in
-            f_input_i = [h_outputs_stock_i, torch.mean(h_outputs_without_i_tensor, 1, True)]
-            f_input_i = torch.stack(f_input_i, dim=1)
-            f_input_i = torch.squeeze(f_input_i, dim=2)
+            f_input_i = [h_outputs_stock_i, torch.mean(h_outputs_without_i_tensor, 0, True)]
+            f_input_i = torch.vstack(f_input_i)
             # print(f_input_i)
-            # f_input_i = torch.flatten(f_input_i)
+            f_input_i = torch.flatten(f_input_i)
             # pass through network of size f_number
-            f_input_i = f_input_i.reshape((-1, self.f_number))
             f_input_i = self.linear_f(f_input_i)
-            f_input_i = self.activation_2(f_input_i)
+            f_input_i = self.activation(f_input_i)
             f_outputs.append(f_input_i)
 
-        x = torch.stack(f_outputs, dim=1)
+        x = torch.vstack(f_outputs)
+        #  final flattened output of size (num_stocks x num_actions)
 
-        x = x.reshape((-1, self.num_stocks*self.num_actions))
+        # options_np = x.detach().cpu().numpy()
+        #
+        # options_np_masked = maskActions(options_np, portfolio_state, actions_dict, h, closing_prices)
+        # options = torch.from_numpy(options_np_masked).to(device)
+
+        x = torch.flatten(x)
 
         return x
 
@@ -353,10 +339,10 @@ class Agent(Portfolio):
         self.num_features_total = self.num_features_from_data + self.portfolio_state.shape[0]
         self.num_epochs = num_epochs
 
-        self.device = device
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        self.Q_network = DQNNetwork(num_stocks, self.num_actions, self.num_features_total, self.batch_size).to(self.device).float()
-        self.Q_network_val = DQNNetwork(num_stocks, self.num_actions, self.num_features_total, self.batch_size).to(self.device).float()
+        self.Q_network = DQNNetwork(num_stocks, self.num_actions, self.num_features_total).to(self.device).float()
+        self.Q_network_val = DQNNetwork(num_stocks, self.num_actions, self.num_features_total).to(self.device).float()
 
         # load a pre-trained model
         if model_path and model_target_path:
@@ -374,100 +360,34 @@ class Agent(Portfolio):
     def reset(self):
         self.reset_portfolio()
         self.epsilon = 1.0  # reset exploration rate
-        self.memory = []
 
     def act(self, state, closing_prices):
-        # state = state.reshape((-1,self.num_stocks * self.num_features_total))
-        state = torch.from_numpy(state).float().unsqueeze(0)
-        state = state.numpy()
-
-        with torch.no_grad():
-            action_values = self.Q_network(state)
-        uniform_random = np.random.rand()
-
-        if (uniform_random > self.epsilon):
-            options = maskActions(action_values, self.portfolio_state, self.num_stocks, self.num_actions,
-                                  self.actions_dict, self.h, closing_prices, self.device)
-
-            action_index = torch.argmax(options).item()
-
-            # action = np.argmax(action_values.cpu().data.numpy())
-        else:
-
+        if not self.Q_network.training and np.random.rand() <= self.epsilon:
             random_options = torch.randint(low=0, high=self.num_stocks * self.num_actions,
-                                                   size=(self.num_stocks, self.num_actions))
+                                           size=(self.num_stocks, self.num_actions))
             random_options = torch.flatten(random_options)
             random_options_allowed = maskActions_evaluation(random_options, self.portfolio_state, self.num_stocks,
                                                              self.num_actions,
                                                              self.actions_dict, self.h, closing_prices, self.device)
             action_index = torch.argmax(random_options_allowed).item()
+            return action_index
+
+        options = maskActions(self.Q_network.forward(state), self.portfolio_state, self.num_stocks, self.num_actions,
+                              self.actions_dict, self.h, closing_prices, self.device)
+
+        action_index = torch.argmax(options).item()
 
         return action_index
 
-    # def act(self, state, closing_prices):
-    #     if not self.Q_network.training and np.random.rand() <= self.epsilon:
-    #         random_options = torch.randint(low=0, high=self.num_stocks * self.num_actions,
-    #                                        size=(self.num_stocks, self.num_actions))
-    #         random_options = torch.flatten(random_options)
-    #         random_options_allowed = maskActions_evaluation(random_options, self.portfolio_state, self.num_stocks,
-    #                                                          self.num_actions,
-    #                                                          self.actions_dict, self.h, closing_prices, self.device)
-    #         action_index = torch.argmax(random_options_allowed).item()
-    #         return action_index
-    #
-    #     options = maskActions(self.Q_network.forward(state), self.portfolio_state, self.num_stocks, self.num_actions,
-    #                           self.actions_dict, self.h, closing_prices, self.device)
-    #
-    #     action_index = torch.argmax(options).item()
-    #
-    #     return action_index
-
-    def sample(self):
-        """Randomly sample a batch of experiences from memory."""
-
-        sample = random.sample(self.memory, self.batch_size)
-        statess, actionss, closing_pricess, rewardss, next_statess, doness = zip(*sample)
-
-        states = np.stack(statess, axis=0)
-        actions = np.stack(actionss, axis=0)
-        closing_prices = np.stack(closing_pricess, axis=0)
-        rewards = np.stack(rewardss, axis=0)
-        next_states = np.stack(next_statess, axis=0)
-        dones = np.stack(doness, axis=0)
-
-        # self.Q_network_val.forward(ss).shape
-        #
-        # self.Q_network.forward(state[0])
-        return (states, actions, rewards, next_states, dones)
-
     def expReplay(self, epoch):
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         # retrieve recent buffer_size long memory
-        sample = self.sample()
-        states, actions, rewards, next_states, dones = sample
-        self.Q_network_val.eval()
-        with torch.no_grad():
-          target_rewards = (rewards + self.gamma*(torch.max(self.Q_network_val.forward(next_states), dim=1, keepdim=True)[0]).cpu().numpy()*(1-dones))[0]
+        #TODO: sample batch_size RANDOM elements from the buffer.
+        mini_batch = [self.memory[i] for i in range(len(self.memory) - self.batch_size + 1, len(self.memory))]
 
-        self.Q_network.train()
-        actions_indexes = actions[:, 0] * actions[:, 1]
-        actions_indexes = torch.from_numpy(actions_indexes).to(device)
-        action_indexes = torch.unsqueeze(actions_indexes, dim=1)
-        expected_rewards = self.Q_network.forward(states).gather(1, action_indexes)
-        target_rewards = torch.tensor(target_rewards, device=device).float().view(-1).unsqueeze(1)
-        loss = self.loss_fn(expected_rewards, target_rewards)
-        self.optimizer.zero_grad()
-        loss.backward()
-        self.optimizer.step()
-
-        avg_loss = loss.mean().detach()
-        self.batch_loss_history.append(avg_loss)
-
-        for Q_network_val_parameters, Q_network_parameters in zip(self.Q_network_val.parameters(),
-                                                                  self.Q_network.parameters()):
-            Q_network_val_parameters.data.copy_(
-                self.tau * Q_network_parameters.data + (1.0 - self.tau) * Q_network_val_parameters.data)
-
+        running_loss = 0.0
+        random.seed(42)
 
         # ss, aa, closing_prices, reward, next_state, done = zip(*mini_batch)
         #
@@ -475,40 +395,92 @@ class Agent(Portfolio):
         # self.Q_network_val.forward(ss).shape
         #
         # self.Q_network.forward(state[0])
-            # state is batch * state
 
+        for state, actions, closing_prices, reward, next_state, done in mini_batch:
+            # ss.append(state)
+            # aa.append(actions)[0]
+            # rr.append(reward[0])
 
-    def expReplay_validation(self, epoch):
+            if not done:
+                self.Q_network_val.eval()
+                with torch.no_grad():
+                    # TODO: fix with the batches - diviede by B
+                    target_rewards = reward + self.gamma * torch.max(self.Q_network_val.forward(next_state)).item()
+                    # test that this does what you expect.
+            else:
+                target_rewards = reward
 
-        # retrieve recent buffer_size long memory
-        sample = self.sample()
-        states, actions, rewards, next_states, dones = sample
-        self.Q_network_val.eval()
+            self.Q_network.train()
 
-        with torch.no_grad():
-          target_rewards = (rewards + self.gamma*(torch.max(self.Q_network_val.forward(next_states), dim=1, keepdim=True)[0]).cpu().numpy()*(1-dones))[0]
+            actions_tensor = torch.tensor([actions[0] + NUM_ACTIONS * actions[1]], dtype=torch.long).to(device)  # Convert actions[0] to a tensor
 
-        # self.Q_network.train()
-        actions_indexes = actions[:, 0] * actions[:, 1]
-        actions_indexes = torch.from_numpy(actions_indexes).to(device)
-        action_indexes = torch.unsqueeze(actions_indexes, dim=1)
-        expected_rewards = self.Q_network.forward(states).gather(1, action_indexes)
-        target_rewards = torch.tensor(target_rewards, device=device).float().view(-1).unsqueeze(1)
-        loss = self.loss_fn(expected_rewards, target_rewards)
-        # self.optimizer.zero_grad()
-        # loss.backward()
-        # self.optimizer.step()
+            expected_rewards = torch.gather(self.Q_network.forward(state), dim=0, index=actions_tensor).to(device)
 
-        avg_loss = loss.mean().detach()
+            target_rewards = torch.tensor([target_rewards], dtype=torch.float).to(device)
+
+            loss = self.loss_fn(expected_rewards, target_rewards)
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step()
+
+            running_loss += loss.item()
+
+        avg_loss = running_loss / self.batch_size
         self.batch_loss_history.append(avg_loss)
 
+        if self.epsilon > self.epsilon_min:
+            self.epsilon *= self.epsilon_decay
 
-        # TODO: uncomment see if changes
+        # update at the end of batch Q_network_val using tau
         for Q_network_val_parameters, Q_network_parameters in zip(self.Q_network_val.parameters(),
                                                                   self.Q_network.parameters()):
             Q_network_val_parameters.data.copy_(
                 self.tau * Q_network_parameters.data + (1.0 - self.tau) * Q_network_val_parameters.data)
 
+
+    def expReplay_validation(self, epoch):
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+        # retrieve recent buffer_size long memory
+        mini_batch = [self.memory[i] for i in range(len(self.memory) - self.batch_size + 1, len(self.memory))]
+
+        running_loss = 0.0
+
+        for state, actions, closing_prices, reward, next_state, done in mini_batch:
+
+            if not done:
+                self.Q_network_val.eval()
+                with torch.no_grad():
+
+                    target_rewards = reward + self.gamma * torch.max(self.Q_network_val.forward(next_state)).item()
+            else:
+                target_rewards = reward
+
+            self.Q_network.eval()
+
+            actions_tensor = torch.tensor([actions[0] + NUM_ACTIONS * actions[1]], dtype=torch.long).to(device)  # Convert actions[0] to a tensor
+
+            expected_rewards = torch.gather(self.Q_network.forward(state), dim=0, index=actions_tensor).to(device)
+
+            target_rewards = torch.tensor([target_rewards], dtype=torch.float).to(device)
+
+            # CHANGE TO MAKE VECTOR?
+            loss = self.loss_fn(expected_rewards, target_rewards)
+
+            running_loss += loss.item()
+
+        avg_loss = running_loss / self.batch_size
+        self.batch_loss_history.append(avg_loss)
+
+        # if self.epsilon > self.epsilon_min:
+        #     self.epsilon *= self.epsilon_decay
+
+        # update at the end of batch Q_network_val using tau
+        # do we still need to do this?
+        for Q_network_val_parameters, Q_network_parameters in zip(self.Q_network_val.parameters(),
+                                                                  self.Q_network.parameters()):
+            Q_network_val_parameters.data.copy_(
+                self.tau * Q_network_parameters.data + (1.0 - self.tau) * Q_network_val_parameters.data)
 
     def execute_action(self, action_index_for_stock_i, closing_prices, stock_i, h, e, dates):
         action_dictionary = {
