@@ -10,23 +10,27 @@ INITIAL_AMOUNT = 10000
 
 
 # DATA PARAMETERS ####################################################
-DATASET = "dataset1_1Day_HA-WBA-INCY.csv"
+DATASET = "dataset1_1Day_w14Lags_HA-WBA-INCY.csv"
 DATASET_INDEX = 1
 NUM_STOCKS = 3
+TIME_LAG = 14
 
 # DQN Params #####################
 #NUM_EPOCHS = 10
-NUM_EPOCHS = 10
+NUM_EPOCHS = 2
 # Define the weight decay value
+# WEIGHT_DECAY = 1e-4
 WEIGHT_DECAY = 1e-3
 
+
 # GAMMA = 0.99
-GAMMA = 0.99
+GAMMA = 0.90
 EPSILON = 1.0
 EPSILON_MIN = 0.01
-EPSILON_DECAY = 0.9999
+EPSILON_DECAY = 0.90
 #EPSILON_DECAY = 0.9900
-LEARNING_RATE = 0.0001
+# LEARNING_RATE = 0.0001
+LEARNING_RATE = 0.00001
 # BATCH_SIZE = 16
 BATCH_SIZE = 32
 #BATCH_SIZE = 68
@@ -57,3 +61,5 @@ ACTIONS_DICTIONARY = {
     11: 'sell_everything',
     12: 'buy_1_share'
 }
+
+

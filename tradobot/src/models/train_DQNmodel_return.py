@@ -22,19 +22,6 @@ import sklearn
 from sklearn.model_selection import train_test_split
 from matplotlib.ticker import MaxNLocator
 
-
-def normalize_dataframe(df):
-    for column in df.columns:
-        if column != 'date' and column != 'tic':
-            for tic in df['tic'].unique():
-                min_val = df.loc[df['tic'] == tic, column].min()
-                max_val = df.loc[df['tic'] == tic, column].max()
-                df.loc[df['tic'] == tic, column] = (df.loc[df['tic'] == tic, column] - min_val) / (max_val - min_val)
-                # mean = df.loc[df['tic'] == tic, column].mean()
-                # std = df.loc[df['tic'] == tic, column].std()
-                # df.loc[df['tic'] == tic, column] = (df.loc[df['tic'] == tic, column] - mean) / std
-    return df.iloc[:, 1:]
-
 @click.command()
 @click.argument('input_filepath', type=click.Path(exists=True))
 @click.argument('output_filepath', type=click.Path())
@@ -43,10 +30,10 @@ def main(input_filepath, output_filepath):
     """
     logger = logging.getLogger(__name__)
 
-    data = pd.read_csv(f'{input_filepath}/{DATASET}')
+    data = pd.read_csv(f'{input_filepath}/{DATASET}', index_col=0)
     #data = normalize_dataframe(data.copy())
 
-    selected_data_entries = 'HuberLoss_wDropout_wWeightDecay_wbatch_2ndrun'
+    selected_data_entries = 'HuberLoss_L1L2reg_wLSTM_article_dates'
     #data_type = "minute_frequency_data"
     data_type = "daily_frequency_data"
     reward_type = "reward_portfolio_return"
@@ -63,26 +50,15 @@ def main(input_filepath, output_filepath):
     random_seed = 42
     unique_dates = data['date'].unique().tolist()
 
-    # TODO: change here
-    train_ratio = 0.7
-    val_ratio = 0.15
-    test_ratio = 0.15
+    # Define the desired date ranges
+    train_start_date = '2014-06-01'
+    train_end_date = '2019-12-31'
+    val_start_date = '2020-01-01'
+    val_end_date = '2021-12-31'
 
-    # Calculate the number of samples for each split
-    total_samples = len(unique_dates)
-    num_train_samples = int(train_ratio * total_samples)
-    num_val_samples = int(val_ratio * total_samples)
-
-    # Split the data using slicing
-    train_dates = unique_dates[:num_train_samples]
-    validation_dates = unique_dates[num_train_samples:num_train_samples + num_val_samples]
-    test_dates = unique_dates[num_train_samples + num_val_samples:]
-
-    # Create the train, validation, and test DataFrames based on the selected dates
-    train_data = data[data['date'].isin(train_dates)]
-    validation_data = data[data['date'].isin(validation_dates)]
-    test_data = data[data['date'].isin(test_dates)]
-
+    # Filter data based on date ranges
+    train_data = data[(data['date'] >= train_start_date) & (data['date'] <= train_end_date)]
+    validation_data = data[(data['date'] >= val_start_date) & (data['date'] <= val_end_date)]
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f'Model running on {device}')
@@ -129,11 +105,9 @@ def main(input_filepath, output_filepath):
         closing_prices = data_window['close'].tolist()
 
         cumulated_profits_list_training = [INITIAL_AMOUNT]
-        #print(f'at beginning of loop cumulated_profits_list_training is {cumulated_profits_list_training}')
         cumulated_profits_list_validation = [INITIAL_AMOUNT]
 
         agent.reset()
-        print(f' agent memory is {len(agent.memory)}')
 
         # TRAINING PHASE ##################################################################
 
@@ -159,15 +133,28 @@ def main(input_filepath, output_filepath):
             indices = np.where(action_index_arr_mask == action_index)
             stock_i, action_index_for_stock_i = map(int, indices)
 
-            reward = agent.execute_action(action_index_for_stock_i, closing_prices, stock_i, h, e, dates)
+            agent.execute_action(action_index_for_stock_i, closing_prices, stock_i, h, e, dates)
 
             # Next state should append the t+1 data and portfolio_state. It also updates the position of agent portfolio based on agent position
-            next_state = getState(data_window, t+1, agent)
+
+            if t<(l_training-1):
+                next_data_window = train_data.loc[(train_data['date'] == unique_dates_training[t + 1])]
+                next_state = getState(next_data_window, t+1, agent)
+                next_closing_prices = next_data_window['close'].tolist()
+                next_dates = next_data_window['date'].tolist()
+            else:
+                next_state = state
+                next_closing_prices = closing_prices
+                next_dates = dates
+
+            reward = agent.update_portfolio(next_closing_prices, next_dates, stock_i)
+            agent.reward = reward.copy()
+
 
             done = True if t==l_training-1 else False
 
 
-            agent.remember(state=state, actions=(action_index_for_stock_i, stock_i, h), closing_prices=closing_prices,
+            agent.remember(state=state, actions=(action_index, action_index_for_stock_i, stock_i, h), closing_prices=closing_prices,
                            reward=reward, next_state=next_state, done=done)
 
             state = next_state
@@ -192,10 +179,6 @@ def main(input_filepath, output_filepath):
                 cumulated_profits_list_training.append(cumulated_profit_per_epoch)
                 timestamps_list_training.append(agent.timestamp_portfolio)
 
-                # # TODO: modify:
-                # # if balance exceeds 20%
-                # if agent.portfolio_state[0,0] > 0.2 * INITIAL_AMOUNT + INITIAL_AMOUNT:
-                #     break
 
         cumulated_profits_list_training_per_epcoh_list.append(agent.portfolio_state[0, 0])
         epoch_numbers_history_training_for_profits.append(e+1)
@@ -220,7 +203,7 @@ def main(input_filepath, output_filepath):
         # VALIDATION PHASE ########################################################################
         agent.reset()
         agent.Q_network.eval()  # Set the model to evaluation mode
-        agent.epsilon = 0.0 # no exploration
+        # agent.epsilon = 0.0 # no exploration
         unique_dates_validation = validation_data['date'].unique()
 
         l_validation = len(unique_dates_validation)
@@ -238,25 +221,33 @@ def main(input_filepath, output_filepath):
             # take action a, observe reward and next_state
             closing_prices = data_window['close'].tolist()
 
-            action_index = agent.act(state, closing_prices)
+            action_index = agent.act_deterministic(state, closing_prices)
 
             # Find the indeces (stock_i, action_index_for_stock_i) where action_index  is present in action_index_arr_mask
 
             indices = np.where(action_index_arr_mask == action_index)
             stock_i, action_index_for_stock_i = map(int, indices)
 
-            reward = agent.execute_action(action_index_for_stock_i, closing_prices, stock_i, h, e, dates)
+            agent.execute_action(action_index_for_stock_i, closing_prices, stock_i, h, e, dates)
 
             # Next state should append the t+1 data and portfolio_state. It also updates the position of agent portfolio based on agent position
-            next_state = getState(data_window, t+1, agent)
+            if t<(l_validation-1):
+                next_data_window = validation_data.loc[(validation_data['date'] == unique_dates_validation[t + 1])]
+                next_state = getState(next_data_window, t+1, agent)
+                next_closing_prices = next_data_window['close'].tolist()
+                next_dates = next_data_window['date'].tolist()
+            else:
+                next_state = state
+                next_closing_prices = closing_prices
+                next_dates = dates
 
-            done = True if t==l_validation-1 else False
+
+            reward = agent.update_portfolio(next_closing_prices, next_dates, stock_i)
+            agent.reward = reward.copy()
 
 
-            agent.remember(state=state, actions=(action_index_for_stock_i, stock_i, h), closing_prices=closing_prices,
+            agent.remember(state=state, actions=(action_index, action_index_for_stock_i, stock_i, h), closing_prices=closing_prices,
                            reward=reward, next_state=next_state, done=done)
-
-            state = next_state
 
             if len(agent.memory) >= agent.batch_size:
                 agent.expReplay_validation(e) # will also save the model on the last epoch
@@ -275,17 +266,13 @@ def main(input_filepath, output_filepath):
                 cumulated_profits_list_validation.append(cumulated_profit_per_epoch)
                 timestamps_list_validation.append(agent.timestamp_portfolio)
 
-                # # TODO: modify:
-                # # if balance exceeds 20%
-                # if agent.portfolio_state[0,0] > 0.2 * INITIAL_AMOUNT + INITIAL_AMOUNT:
-                #     break
-
+            done = True if t == l_validation - 1 else False
 
         ####
         cumulated_profits_list_validation_per_epcoh_list.append(agent.portfolio_state[0, 0])
         epoch_numbers_history_val_for_profits.append(e+1)
 
-        loss_per_epoch = sum(val_loss_history) / len(val_loss_history)
+        loss_per_epoch = (sum(val_loss_history) / len(val_loss_history))
         loss_history_per_epoch_validation.append(loss_per_epoch)
         epoch_numbers_history_validation.append(e+1)
 
@@ -293,7 +280,6 @@ def main(input_filepath, output_filepath):
         df_portfolio_state = pd.DataFrame(agent.portfolio_state, columns = cols_stocks)
         df_portfolio_state.insert(0, 'TIC', agent.portfolio_state_rows)
         print(f'Validation: Portfolio state for epoch {e+1} is \n: {df_portfolio_state}')
-
 
         # Save explainability DataFrame for the last epoch
         if e == (agent.num_epochs-1):
@@ -333,41 +319,41 @@ def main(input_filepath, output_filepath):
     ax2.legend()
 
     # Plot for cumulative profits during validation
-    ax3.plot(timestamps_list_validation, cumulated_profits_list_validation)
+    ax3.plot(timestamps_list_training, cumulated_profits_list_training)
     ax3.set_xlabel('Timestamp')
     ax3.set_ylabel('Cumulated Profits')
-    ax3.set_title('Cumulated Profits during Validation \n(Last Epoch)')
+    ax3.set_title('Cumulated Profits during Training \n(Last Epoch)')
     ax3.grid(True)
     ax3.legend()
 
     # Get the number of timestamps in the validation data
-    num_timestamps = len(timestamps_list_validation)
+    num_timestamps = len(timestamps_list_training)
 
     # Calculate the step size for x-axis ticks
     step = max(1, num_timestamps // 6)  # Ensure at least 1 tick and round down
 
     # Set the x-axis tick locations and labels
     x_ticks = np.linspace(0, num_timestamps - 1, 6, dtype=int)
-    x_tick_labels = [timestamps_list_validation[i] for i in x_ticks]
+    x_tick_labels = [timestamps_list_training[i] for i in x_ticks]
 
     # Set the x-axis tick locations and labels
     ax3.set_xticks(x_ticks)
     ax3.set_xticklabels(x_tick_labels, rotation=45)
 
     # Plot for cumulative profits during training
-    ax4.plot(timestamps_list_training, cumulated_profits_list_training)
+    ax4.plot(timestamps_list_validation, cumulated_profits_list_validation)
     ax4.set_xlabel('Timestamp')
     ax4.set_ylabel('Cumulated Profits')
-    ax4.set_title('Cumulated Profits during Training \n(Last Epoch)')
+    ax4.set_title('Cumulated Profits during Validation \n(Last Epoch)')
     ax4.grid(True)
     ax4.legend()
     # Get the number of timestamps in the validation data
-    num_timestamps = len(timestamps_list_training)
+    num_timestamps = len(timestamps_list_validation)
     # Calculate the step size for x-axis ticks
     step = max(1, num_timestamps // 6)  # Ensure at least 1 tick and round down
     # Set the x-axis tick locations and labels
     x_ticks = np.linspace(0, num_timestamps - 1, 6, dtype=int)
-    x_tick_labels = [timestamps_list_training[i] for i in x_ticks]
+    x_tick_labels = [timestamps_list_validation[i] for i in x_ticks]
 
     # Set the x-axis tick locations and labels
     ax4.set_xticks(x_ticks)
@@ -398,87 +384,83 @@ def main(input_filepath, output_filepath):
     with open( f'{output_filepath}/reward_return/config_file_for_{dataset_name}_{date_string}_{selected_data_entries}.txt', 'w') as file:
         file.write(config_text)
 
-    # TESTING ###############################################################################################################
-    print('Testing Phase')
-    agent.reset()
-    agent.epsilon = 0.0 # no exploration
-    agent.memory = []
-    cumulated_profits_list_testing = [INITIAL_AMOUNT]
-    unique_dates_testing = test_data['date'].unique()
-    dates_testing = [unique_dates_testing[0]]
-    e = agent.num_epochs-1 #for explainability
-
-    l_testing = len(unique_dates_testing)
-    for t in range(l_testing):
-        ####
-        data_window = test_data.loc[(test_data['date'] == unique_dates_testing[t])]
-
-        # replace NaN values with 0.0
-        data_window = data_window.fillna(0)
-        dates = data_window['date'].tolist()
-
-        state = getState(data_window, t, agent)
-
-        closing_prices = data_window['close'].tolist()
-
-        # take action a, observe reward and next_state
-        action_index = agent.act(state, closing_prices)
-
-        # Find the indeces (stock_i, action_index_for_stock_i) where action_index  is present in action_index_arr_mask
-        indices = np.where(action_index_arr_mask == action_index)
-        stock_i, action_index_for_stock_i = map(int, indices)
-
-        reward = agent.execute_action(action_index_for_stock_i, closing_prices, stock_i, h, e, dates)
-
-        updated_balance = agent.portfolio_state[0, 0]
-        cumulated_profits_list_testing.append(updated_balance)
-        dates_testing.append(dates[0])
-
-        # Next state should append the t+1 data and portfolio_state. It also updates the position of agent portfolio based on agent position
-        next_state = getState(data_window, t + 1, agent)
-        state = next_state
-
-        done = True if t == l_testing - 1 else False
-
-        # # TODO: modify:
-        # # if balance exceeds 20%
-        # if agent.portfolio_state[0, 0] > 0.2 * INITIAL_AMOUNT + INITIAL_AMOUNT:
-        #     break
-
-    # printing portfolio state for testing at the end
-    df_portfolio_state = pd.DataFrame(agent.portfolio_state, columns=cols_stocks)
-    df_portfolio_state.insert(0, 'TIC', agent.portfolio_state_rows)
-    print(f'Testing: Portfolio state is \n: {df_portfolio_state}')
-
-    # saving the explainability file
-    current_date = datetime.datetime.now()
-    date_string = current_date.strftime("%Y-%m-%d_%H_%M")
-    agent.explainability_df.to_csv(
-        f'./reports/results_DQN/{reward_type}/{data_type}/testing/testing_explainability_{dataset_name}_{date_string}_{selected_data_entries}.csv', index=False)
-
-    # Plotting
-    fig, ax = plt.subplots(figsize=(10, 6))
-    plt.margins(0.1)
-    # Create the plot
-    plt.plot(dates_testing, cumulated_profits_list_testing)
-
-    # Customize the plot
-    plt.title("Testing Period: Cumulated Profits Over Time")
-    plt.xlabel("Dates")
-    plt.ylabel("Cumulated Profits")
-    plt.xticks(rotation=45)
-    plt.grid(True)
-
-    # Reduce the number of dates shown on the x-axis
-    num_dates = 6
-    skip = max(1, len(dates_testing) // num_dates)
-    plt.xticks(range(0, len(dates_testing), skip), dates_testing[::skip])
-    # Adjust the bottom margin to make the x-axis labels visible
-    plt.subplots_adjust(bottom=0.2)
-
-    # Save the figure in the specified folder path
-    plt.savefig(f'./reports/figures/DQN_{reward_type}/{data_type}/DQN_testing_profits_for_{dataset_name}_{date_string}_{selected_data_entries}.png')
-    plt.show()
+    # # TESTING ###############################################################################################################
+    # print('Testing Phase')
+    # agent.reset()
+    # agent.epsilon = 0.0 # no exploration
+    # agent.memory = []
+    # cumulated_profits_list_testing = [INITIAL_AMOUNT]
+    # unique_dates_testing = test_data['date'].unique()
+    # dates_testing = [unique_dates_testing[0]]
+    # e = agent.num_epochs-1 #for explainability
+    #
+    # l_testing = len(unique_dates_testing)
+    # for t in range(l_testing):
+    #     ####
+    #     data_window = test_data.loc[(test_data['date'] == unique_dates_testing[t])]
+    #
+    #     # replace NaN values with 0.0
+    #     data_window = data_window.fillna(0)
+    #     dates = data_window['date'].tolist()
+    #
+    #     state = getState(data_window, t, agent)
+    #
+    #     closing_prices = data_window['close'].tolist()
+    #
+    #     # take action a, observe reward and next_state
+    #     action_index = agent.act(state, closing_prices)
+    #
+    #     # Find the indeces (stock_i, action_index_for_stock_i) where action_index  is present in action_index_arr_mask
+    #     indices = np.where(action_index_arr_mask == action_index)
+    #     stock_i, action_index_for_stock_i = map(int, indices)
+    #
+    #     reward = agent.execute_action(action_index_for_stock_i, closing_prices, stock_i, h, e, dates)
+    #
+    #     updated_balance = agent.portfolio_state[0, 0]
+    #     cumulated_profits_list_testing.append(updated_balance)
+    #     dates_testing.append(dates[0])
+    #
+    #     # Next state should append the t+1 data and portfolio_state. It also updates the position of agent portfolio based on agent position
+    #     next_state = getState(data_window, t + 1, agent)
+    #     state = next_state
+    #
+    #     done = True if t == l_testing - 1 else False
+    #
+    #
+    # # printing portfolio state for testing at the end
+    # df_portfolio_state = pd.DataFrame(agent.portfolio_state, columns=cols_stocks)
+    # df_portfolio_state.insert(0, 'TIC', agent.portfolio_state_rows)
+    # print(f'Testing: Portfolio state is \n: {df_portfolio_state}')
+    #
+    # # saving the explainability file
+    # current_date = datetime.datetime.now()
+    # date_string = current_date.strftime("%Y-%m-%d_%H_%M")
+    # agent.explainability_df.to_csv(
+    #     f'./reports/results_DQN/{reward_type}/{data_type}/testing/testing_explainability_{dataset_name}_{date_string}_{selected_data_entries}.csv', index=False)
+    #
+    # # Plotting
+    # fig, ax = plt.subplots(figsize=(10, 6))
+    # plt.margins(0.1)
+    # # Create the plot
+    # plt.plot(dates_testing, cumulated_profits_list_testing)
+    #
+    # # Customize the plot
+    # plt.title("Testing Period: Cumulated Profits Over Time")
+    # plt.xlabel("Dates")
+    # plt.ylabel("Cumulated Profits")
+    # plt.xticks(rotation=45)
+    # plt.grid(True)
+    #
+    # # Reduce the number of dates shown on the x-axis
+    # num_dates = 6
+    # skip = max(1, len(dates_testing) // num_dates)
+    # plt.xticks(range(0, len(dates_testing), skip), dates_testing[::skip])
+    # # Adjust the bottom margin to make the x-axis labels visible
+    # plt.subplots_adjust(bottom=0.2)
+    #
+    # # Save the figure in the specified folder path
+    # plt.savefig(f'./reports/figures/DQN_{reward_type}/{data_type}/DQN_testing_profits_for_{dataset_name}_{date_string}_{selected_data_entries}.png')
+    # plt.show()
 
 
 

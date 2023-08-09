@@ -362,7 +362,7 @@ class Agent(Portfolio):
         self.epsilon = 1.0  # reset exploration rate
 
     def act(self, state, closing_prices):
-        if not self.Q_network.training and np.random.rand() <= self.epsilon:
+        if np.random.rand() <= self.epsilon:
             random_options = torch.randint(low=0, high=self.num_stocks * self.num_actions,
                                            size=(self.num_stocks, self.num_actions))
             random_options = torch.flatten(random_options)
@@ -472,15 +472,18 @@ class Agent(Portfolio):
         avg_loss = running_loss / self.batch_size
         self.batch_loss_history.append(avg_loss)
 
+        if self.epsilon > self.epsilon_min:
+            self.epsilon *= self.epsilon_decay*0.00001
+
         # if self.epsilon > self.epsilon_min:
         #     self.epsilon *= self.epsilon_decay
 
         # update at the end of batch Q_network_val using tau
         # do we still need to do this?
-        for Q_network_val_parameters, Q_network_parameters in zip(self.Q_network_val.parameters(),
-                                                                  self.Q_network.parameters()):
-            Q_network_val_parameters.data.copy_(
-                self.tau * Q_network_parameters.data + (1.0 - self.tau) * Q_network_val_parameters.data)
+        # for Q_network_val_parameters, Q_network_parameters in zip(self.Q_network_val.parameters(),
+        #                                                           self.Q_network.parameters()):
+        #     Q_network_val_parameters.data.copy_(
+        #         self.tau * Q_network_parameters.data + (1.0 - self.tau) * Q_network_val_parameters.data)
 
     def execute_action(self, action_index_for_stock_i, closing_prices, stock_i, h, e, dates):
         action_dictionary = {
@@ -506,6 +509,42 @@ class Agent(Portfolio):
         else:
             # Handle the case when action_index_for_stock_i is not found in the dictionary
             reward = "Invalid action index"
+
+        # return reward
+
+    def update_portfolio(self, closing_prices, dates, stock_i):
+        self.timestamp_portfolio = dates[0]
+        prev_balance = self.portfolio_state[0,0]
+
+        # store prev stock position
+        prev_position_stocks = self.portfolio_state[1, :]
+
+        # store prev portfolio position # we can take the first element since it is the same value for the whole row
+        prev_position_portfolio = self.portfolio_state[2, 0]
+
+        # UPDATE DAILY RETURNS ##############################
+        # update all stock positions based on new closing prices: no.shares * closing prices
+        for i in range(self.portfolio_state.shape[1]):
+            self.portfolio_state[1, i] = self.portfolio_state[7, i] * closing_prices[i]
+
+        # update position total (same for all): sum of all stock positions
+        for i in range(self.portfolio_state.shape[1]):
+            self.portfolio_state[2, i] = np.sum(self.portfolio_state[1, :])
+
+        # update total balance: position total + cash left
+        for i in range(self.portfolio_state.shape[1]):
+            self.portfolio_state[0, i] = self.portfolio_state[2, 0] + self.portfolio_state[5, 0]
+
+        # update daily return per stocks: position stock_i - prev position stock i
+        for i in range(self.portfolio_state.shape[1]):
+            self.portfolio_state[3, i] = self.portfolio_state[1, stock_i] - prev_position_stocks[i]
+
+        # update daily return total portfolio (same for all): position_portfolio - prev position portfolio
+        for i in range(self.portfolio_state.shape[1]):
+            self.portfolio_state[4, i] = self.portfolio_state[2, 0] - prev_position_portfolio
+
+        # reward is daily/ min return per total balance
+        reward = (self.portfolio_state[0, 0] - prev_balance)/self.initial_total_balance
 
         return reward
 

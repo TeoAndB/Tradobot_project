@@ -1,24 +1,24 @@
 from __future__ import  annotations
 
 # stocks - tickers for 1Day frequency
-# TICKER_LIST_test = ['HA', 'WBA']
-# TICKER_LIST_1 = ['HA', 'WBA', 'INCY']
-# TICKER_LIST_2 = ['HA', 'WBA', 'INCY', 'BIDU']
-# TICKER_LIST_3 = ['HA', 'WBA', 'INCY', 'BIDU', 'TCOM']
-# TICKER_LIST_4 = ['HA', 'WBA', 'INCY', 'AAPL']
-# TICKER_LIST_5 = ['HA', 'WBA', 'INCY', 'AAPL', 'COST']
-# TICKER_LIST_6 = ['HA', 'WBA', 'INCY', 'BIDU', 'TCOM', 'AAPL', 'COST']
-# TICKER_LIST_7 = ['BIDU', 'TCOM', 'AAPL', 'COST']
+TICKER_LIST_test = ['HA', 'WBA']
+TICKER_LIST_1 = ['HA', 'WBA', 'INCY']
+TICKER_LIST_2 = ['HA', 'WBA', 'INCY', 'BIDU']
+TICKER_LIST_3 = ['HA', 'WBA', 'INCY', 'BIDU', 'TCOM']
+TICKER_LIST_4 = ['HA', 'WBA', 'INCY', 'AAPL']
+TICKER_LIST_5 = ['HA', 'WBA', 'INCY', 'AAPL', 'COST']
+TICKER_LIST_6 = ['HA', 'WBA', 'INCY', 'BIDU', 'TCOM', 'AAPL', 'COST']
+TICKER_LIST_7 = ['BIDU', 'TCOM', 'AAPL', 'COST']
+
+TICKER_LIST_lists = [TICKER_LIST_1, TICKER_LIST_2, TICKER_LIST_3, TICKER_LIST_4,
+                     TICKER_LIST_5, TICKER_LIST_6, TICKER_LIST_7]
+
+# TICKER_LIST_1 = ['MSFT']
+# TICKER_LIST_2 = ['AMZN']
+# TICKER_LIST_3 = ['SPX']
+# TICKER_LIST_4 = ['SPY']
 #
-# TICKER_LIST_lists = [TICKER_LIST_1, TICKER_LIST_2, TICKER_LIST_3, TICKER_LIST_4,
-#                      TICKER_LIST_5, TICKER_LIST_6, TICKER_LIST_7]
-
-TICKER_LIST_1 = ['MSFT']
-TICKER_LIST_2 = ['AMZN']
-TICKER_LIST_3 = ['SPX']
-TICKER_LIST_4 = ['SPY']
-
-TICKER_LISTS_lists = [TICKER_LIST_1, TICKER_LIST_2, TICKER_LIST_3, TICKER_LIST_4]
+# TICKER_LISTS_lists = [TICKER_LIST_1, TICKER_LIST_2, TICKER_LIST_3, TICKER_LIST_4]
 
 #TICKER_LIST_lists = [TICKER_LIST_6]
 
@@ -27,29 +27,13 @@ TICKER_LISTS_lists = [TICKER_LIST_1, TICKER_LIST_2, TICKER_LIST_3, TICKER_LIST_4
 
 
 # DATA DATES FOR 1DAY FREQUENCY ##########################
-# different test dates due to Alpaca API restrictions - no data before 2016
 TRAIN_START_DATE = '2014-07-01'
 TRAIN_END_DATE = '2019-12-31'
 # Used in article: January 2020 – December 2021
 TEST_START_DATE = '2020-01-01'
-TEST_END_DATE = '2021-12-31'
+# TEST_END_DATE = '2021-12-31'
 
-# # INTRADAY DATA TEST #######################################
-TRAIN_START_DATE = '2019-01-02'
-TRAIN_END_DATE = '2019-09-01'
-# Used in article: January 2020 – December 2021
-TEST_START_DATE = '2019-10-01'
-TEST_END_DATE = '2019-12-30'
-
-# 1MIN LAST 7 DAYS ##############
-# TRAIN_START_DATE = '2023-04-20'
-# TRAIN_END_DATE = '2023-04-13'
-#
-# TEST_START_DATE = '2023-04-20'
-# TEST_END_DATE = '2023-04-13'
-
-# TODO: change test end date and compare results
-#TEST_END_DATE = '2022-12-31'
+TEST_END_DATE = '2022-12-31'
 
 # opening and closing prices every time interval
 TIME_INTERVAL = '1D'

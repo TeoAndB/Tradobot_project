@@ -6,7 +6,7 @@ from pathlib import Path
 from dotenv import find_dotenv, load_dotenv
 
 from src.config_model_DQN_return import *
-from src.models.DQN_model_w_return import Agent, Portfolio, getState, maskActions
+from src.models.DQN_model_w_return_old import Agent, Portfolio, getState, maskActions
 #from functions import *
 
 import logging
@@ -158,18 +158,26 @@ def main(input_filepath, output_filepath):
             indices = np.where(action_index_arr_mask == action_index)
             stock_i, action_index_for_stock_i = map(int, indices)
 
-            reward = agent.execute_action(action_index_for_stock_i, closing_prices, stock_i, h, e, dates)
+            agent.execute_action(action_index_for_stock_i, closing_prices, stock_i, h, e, dates)
 
             # Next state should append the t+1 data and portfolio_state. It also updates the position of agent portfolio based on agent position
-            next_state, agent = getState(data_window, t+1, agent)
+            if t < (l_training - 1):
+                next_data_window = train_data.loc[(train_data['date'] == unique_dates_training[t + 1])]
+                next_state = getState(next_data_window, t + 1, agent)
+                next_closing_prices = next_data_window['close'].tolist()
+                next_dates = next_data_window['date'].tolist()
+            else:
+                next_state = state
+                next_closing_prices = closing_prices
+                next_dates = dates
+
+            reward = agent.update_portfolio(next_closing_prices, next_dates, stock_i)
 
             done = True if t==l_training-1 else False
 
 
             agent.remember(state=state, actions=(action_index_for_stock_i, stock_i, h), closing_prices=closing_prices,
                            reward=reward, next_state=next_state, done=done)
-
-            state = next_state
 
             if len(agent.memory) >= agent.batch_size:
                 agent.expReplay(e) # will also save the model on the last epoch
@@ -219,7 +227,7 @@ def main(input_filepath, output_filepath):
         # VALIDATION PHASE ########################################################################
         agent.reset()
         agent.Q_network.eval()  # Set the model to evaluation mode
-        agent.epsilon = 0.0 # no exploration
+        # agent.epsilon = 0.0 # no exploration
         unique_dates_validation = validation_data['date'].unique()
 
         l_validation = len(unique_dates_validation)
@@ -247,7 +255,17 @@ def main(input_filepath, output_filepath):
             reward = agent.execute_action(action_index_for_stock_i, closing_prices, stock_i, h, e, dates)
 
             # Next state should append the t+1 data and portfolio_state. It also updates the position of agent portfolio based on agent position
-            next_state, agent = getState(data_window, t+1, agent)
+            if t < (l_validation - 1):
+                next_data_window = validation_data.loc[(validation_data['date'] == unique_dates_validation[t + 1])]
+                next_state = getState(next_data_window, t + 1, agent)
+                next_closing_prices = next_data_window['close'].tolist()
+                next_dates = next_data_window['date'].tolist()
+            else:
+                next_state = state
+                next_closing_prices = closing_prices
+                next_dates = dates
+
+            reward = agent.update_portfolio(next_closing_prices, next_dates, stock_i)
 
             done = True if t==l_validation-1 else False
 

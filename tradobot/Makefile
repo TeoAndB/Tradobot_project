@@ -54,6 +54,9 @@ data_alpaca: requirements
 train_DQN_return: requirements
 	$(PYTHON_INTERPRETER) src/models/train_DQNmodel_return.py data/processed models
 
+train_DQN_return_old: requirements
+	$(PYTHON_INTERPRETER) src/models/train_DQNmodel_return_old.py data/processed models
+
 # Train the model
 train_DQN_return_w_scalping: requirements
 	$(PYTHON_INTERPRETER) src/models/train_DQNmodel_return_w_scalping.py data/processed models

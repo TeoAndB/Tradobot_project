@@ -35,6 +35,12 @@ def main(input_filepath, output_filepath):
 
         processed = fe.preprocess_data(df)
         processed = processed.copy()
+
+        lags = 14
+        for lag in range(1, lags + 1):
+            processed[f'close_lag_{lag}'] = processed['close'].shift(lag)
+
+        print("Successfully added 14 lags for close price")
         processed = processed.fillna(0)
         processed = processed.replace(np.inf, 0)
         print("Successfully added technical indicators and turbulence")
@@ -42,7 +48,7 @@ def main(input_filepath, output_filepath):
         print('Summary of data:')
         print(processed.describe())
         name_dataset = '-'.join(TICKER_LIST)
-        processed.to_csv(f'data/processed/dataset{i}_1Day_{name_dataset}.csv')
+        processed.to_csv(f'data/processed/dataset{i}_1Day_w14Lags_{name_dataset}.csv')
         i += 1
 
 
