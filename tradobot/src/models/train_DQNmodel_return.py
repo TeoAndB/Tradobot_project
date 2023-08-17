@@ -55,11 +55,12 @@ def main(input_filepath, output_filepath):
     train_end_date = '2019-12-31'
     final_training_year = '2019'
 
+    # validation
     val_start_date = '2020-01-01'
     val_end_date = '2021-12-31'
     final_validation_year = '2021'
 
-    # extra insights for year 2022
+    # testing
     test_start_date = '2022-01-01'
     test_end_date = '2022-12-31'
     final_testing_year = '2022'
@@ -177,9 +178,10 @@ def main(input_filepath, output_filepath):
 
             reward = agent.update_portfolio(next_closing_prices, next_dates, stock_i)
 
-            agent.reward = reward * final_penalty
-            if final_penalty != 1.0:
-                final_penalty = 1.0
+            agent.reward = reward
+            # agent.reward = reward * final_penalty
+            # if final_penalty != 1.0:
+            #     final_penalty = 1.0
 
             done = True if t == l_training - 1 else False
 
@@ -207,18 +209,18 @@ def main(input_filepath, output_filepath):
             next_year = next_years.iloc[0]
 
             if year != next_year:
-                losses = [1, 0.95, 0.9, 0.85, 0.8, 0.75, 0.7, 0.6, 0.55, 0.5, 0.35, 0.3, 0.25]
-                for i in losses:
-                    if agent.portfolio_state[0, 0] < INITIAL_AMOUNT * i:
-                        distance_from_no_loss = 1 - i
-                        final_penalty = -1000.0 * (distance_from_no_loss ** 2)
-
-                profits = [1.01, 1.02, 1.03, 1.04, 1.05, 1.06, 1.07, 1.08, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9,
-                           2.0, 2.2, 2.5, 2.8, 3.0, 3.2, 3.5, 3.8, 4.0]
-                for i in profits:
-                    if agent.portfolio_state[0, 0] > INITIAL_AMOUNT * i:
-                        bonus = 1000.0 * (i**2)
-                        final_penalty = bonus
+                # losses = [1, 0.95, 0.9, 0.85, 0.8, 0.75, 0.7, 0.6, 0.55, 0.5, 0.35, 0.3, 0.25]
+                # for i in losses:
+                #     if agent.portfolio_state[0, 0] < INITIAL_AMOUNT * i:
+                #         distance_from_no_loss = 1 - i
+                #         final_penalty = -1000.0 * (distance_from_no_loss ** 2)
+                #
+                # profits = [1.01, 1.02, 1.03, 1.04, 1.05, 1.06, 1.07, 1.08, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9,
+                #            2.0, 2.2, 2.5, 2.8, 3.0, 3.2, 3.5, 3.8, 4.0]
+                # for i in profits:
+                #     if agent.portfolio_state[0, 0] > INITIAL_AMOUNT * i:
+                #         bonus = 1000.0 * (i**2)
+                #         final_penalty = bonus
 
                 # keep track of yearly profit
                 years_list_training.append(year)
@@ -233,18 +235,18 @@ def main(input_filepath, output_filepath):
                     cumulated_profits_list_training.append(cumulated_profit_per_epoch)
                     timestamps_list_training.append(agent.timestamp_portfolio)
 
-            losses = [1,0.95,0.9,0.85,0.8,0.75,0.7,0.6,0.55,0.5,0.35,0.3,0.25]
-            for i in losses:
-                if agent.portfolio_state[0,0] < INITIAL_AMOUNT*i:
-                    distance_from_no_loss = 1 - i
-                    final_penalty = -1000.0 * (distance_from_no_loss ** 2)
-
-            profits = [1.01,1.02,1.03,1.04,1.05,1.06,1.07,1.08,1.1,1.2,1.3,1.4,1.5,1.6,1.7,1.8,1.9,2.0]
-            for i in profits:
-                if agent.portfolio_state[0,0] > INITIAL_AMOUNT*i:
-                    # print("Giving bonus")
-                    bonus = 100.0 * (i**2)
-                    final_penalty = bonus
+            # losses = [1,0.95,0.9,0.85,0.8,0.75,0.7,0.6,0.55,0.5,0.35,0.3,0.25]
+            # for i in losses:
+            #     if agent.portfolio_state[0,0] < INITIAL_AMOUNT*i:
+            #         distance_from_no_loss = 1 - i
+            #         final_penalty = -1000.0 * (distance_from_no_loss ** 2)
+            #
+            # profits = [1.01,1.02,1.03,1.04,1.05,1.06,1.07,1.08,1.1,1.2,1.3,1.4,1.5,1.6,1.7,1.8,1.9,2.0]
+            # for i in profits:
+            #     if agent.portfolio_state[0,0] > INITIAL_AMOUNT*i:
+            #         # print("Giving bonus")
+            #         bonus = 100.0 * (i**2)
+            #         final_penalty = bonus
 
             done = True if t == l_training - 1 else False
 
@@ -327,6 +329,8 @@ def main(input_filepath, output_filepath):
             reward = agent.update_portfolio(next_closing_prices, next_dates, stock_i)
             agent.reward = reward*final_penalty
 
+            # agent.reward = reward*final_penalty
+
             state = torch.from_numpy(state).float().unsqueeze(0)
             next_state = torch.from_numpy(next_state).float().unsqueeze(0)
 
@@ -379,19 +383,19 @@ def main(input_filepath, output_filepath):
                 yearly_profit_validation.append(agent.portfolio_state[0, 0])
                 agent.reset_portfolio()
 
-                # penalize agent
-                losses = [1, 0.95, 0.9, 0.85, 0.8, 0.75, 0.7, 0.6, 0.55, 0.5, 0.35, 0.3, 0.25]
-                for i in losses:
-                    if agent.portfolio_state[0, 0] < INITIAL_AMOUNT * i:
-                        distance_from_no_loss = 1 - i
-                        final_penalty = -1000.0 * (distance_from_no_loss ** 2)
-
-                profits = [1.01, 1.02, 1.03, 1.04, 1.05, 1.06, 1.07, 1.08, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9,
-                           2.0]
-                for i in profits:
-                    if agent.portfolio_state[0, 0] > INITIAL_AMOUNT * i:
-                        bonus = 1000.0 * (i**2)
-                        final_penalty = bonus
+                # # penalize agent
+                # losses = [1, 0.95, 0.9, 0.85, 0.8, 0.75, 0.7, 0.6, 0.55, 0.5, 0.35, 0.3, 0.25]
+                # for i in losses:
+                #     if agent.portfolio_state[0, 0] < INITIAL_AMOUNT * i:
+                #         distance_from_no_loss = 1 - i
+                #         final_penalty = -1000.0 * (distance_from_no_loss ** 2)
+                #
+                # profits = [1.01, 1.02, 1.03, 1.04, 1.05, 1.06, 1.07, 1.08, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9,
+                #            2.0]
+                # for i in profits:
+                #     if agent.portfolio_state[0, 0] > INITIAL_AMOUNT * i:
+                #         bonus = 1000.0 * (i**2)
+                #         final_penalty = bonus
 
             # track profits only from the most recent year from last epoch:
             if e == (agent.num_epochs - 1):
@@ -400,19 +404,19 @@ def main(input_filepath, output_filepath):
                     cumulated_profits_list_validation.append(cumulated_profit_per_epoch)
                     timestamps_list_validation.append(agent.timestamp_portfolio)
 
-            # penalyze agent
-            losses = [1,0.95,0.9,0.85,0.8,0.75,0.7,0.6,0.55,0.5,0.35,0.3,0.25]
-            for i in losses:
-                if agent.portfolio_state[0,0] < INITIAL_AMOUNT*i:
-                    distance_from_no_loss = 1 - i
-                    final_penalty = -1000.0 * (distance_from_no_loss ** 2)
-
-            profits = [1.01,1.02,1.03,1.04,1.05,1.06,1.07,1.08,1.1,1.2,1.3,1.4,1.5,1.6,1.7,1.8,1.9,2.0]
-            for i in profits:
-                if agent.portfolio_state[0,0] > INITIAL_AMOUNT*i:
-                    # print("Giving bonus")
-                    bonus = 100.0 * (i**2)
-                    final_penalty = bonus
+            # # penalyze agent
+            # losses = [1,0.95,0.9,0.85,0.8,0.75,0.7,0.6,0.55,0.5,0.35,0.3,0.25]
+            # for i in losses:
+            #     if agent.portfolio_state[0,0] < INITIAL_AMOUNT*i:
+            #         distance_from_no_loss = 1 - i
+            #         final_penalty = -1000.0 * (distance_from_no_loss ** 2)
+            #
+            # profits = [1.01,1.02,1.03,1.04,1.05,1.06,1.07,1.08,1.1,1.2,1.3,1.4,1.5,1.6,1.7,1.8,1.9,2.0]
+            # for i in profits:
+            #     if agent.portfolio_state[0,0] > INITIAL_AMOUNT*i:
+            #         # print("Giving bonus")
+            #         bonus = 100.0 * (i**2)
+            #         final_penalty = bonus
 
             done = True if t == l_validation - 1 else False
             if done:
@@ -717,7 +721,7 @@ def main(input_filepath, output_filepath):
     plt.savefig(f'./reports/figures/DQN_{reward_type}/{data_type}/DQN_testing_profits_for_{dataset_name}_{date_string}_{selected_data_entries}.png')
     plt.show()
 
-    # Saving results files
+    # Saving results_FinRL files
 
     # Losses per epoch
     loss_per_epoch_df = pd.DataFrame(
