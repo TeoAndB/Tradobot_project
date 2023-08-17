@@ -17,7 +17,7 @@ TIME_LAG = 14
 
 # DQN Params #####################
 #NUM_EPOCHS = 10
-NUM_EPOCHS = 2
+NUM_EPOCHS = 1
 # Define the weight decay value
 # WEIGHT_DECAY = 1e-4
 WEIGHT_DECAY = 1e-3
