@@ -59,13 +59,15 @@ def main(input_filepath, output_filepath):
     val_end_date = '2021-12-31'
     final_validation_year = '2021'
 
-    test_start_date = '2021-01-01'
-    test_end_date = '2021-12-31'
-    final_testing_year = '2021'
+    # extra insights for year 2022
+    test_start_date = '2022-01-01'
+    test_end_date = '2022-12-31'
+    final_testing_year = '2022'
 
-    test_start_date_2 = '2022-01-01'
-    test_end_date_2 = '2022-12-31'
-    final_testing_year_2 = '2022'
+    # extra insights for year 2021
+    test_start_date_2 = '2021-01-01'
+    test_end_date_2 = '2021-12-31'
+    final_testing_year_2 = '2021'
 
     # Filter data based on date ranges
     train_data = data[(data['date'] >= train_start_date) & (data['date'] <= train_end_date)]
@@ -763,7 +765,7 @@ def main(input_filepath, output_filepath):
     avg_profit_testing = cumulated_profits_list_testing[-1]
 
     avg_yearly_profit = [avg_profit_training, avg_profit_validation, avg_profit_testing]
-    dataset_types = ['training_last_epoch','validation_last_epoch','testing']
+    dataset_types = ['training_last_epoch','validation_last_epoch','testing_2022']
 
     avg_yearly_profit_df = pd.DataFrame(
         {'dataset': dataset_types,
