@@ -54,12 +54,8 @@ data_alpaca: requirements
 train_DQN_return: requirements
 	$(PYTHON_INTERPRETER) src/models/train_DQNmodel_return.py data/processed models
 
-train_DQN_return_old: requirements
-	$(PYTHON_INTERPRETER) src/models/train_DQNmodel_return_old.py data/processed models
-
-# Train the model
-train_DQN_return_w_scalping: requirements
-	$(PYTHON_INTERPRETER) src/models/train_DQNmodel_return_w_scalping.py data/processed models
+train_DQN_return_new: requirements
+	$(PYTHON_INTERPRETER) src/models/train_DQNmodel_return_new.py data/processed models
 
 train_DQN_sharpe: requirements
 	$(PYTHON_INTERPRETER) src/models/train_DQNmodel_sharpe.py data/processed models
@@ -67,6 +63,11 @@ train_DQN_sharpe: requirements
 # Train the model
 run_baseline: requirements
 	$(PYTHON_INTERPRETER) src/models/run_baseline_model.py data/processed models
+
+# Visualize explainability files
+visualize_explainability: requirements
+	$(PYTHON_INTERPRETER) src/visualization/visualize.py reports/results_DQN reports/explainability_figures
+
 ## Delete all compiled Python files
 clean:
 	find . -type f -name "*.py[co]" -delete

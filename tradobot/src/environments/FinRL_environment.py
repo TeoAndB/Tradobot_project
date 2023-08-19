@@ -97,7 +97,7 @@ class StockTradingEnv(gym.Env):
             []
         )  # we need sometimes to preserve the state in the middle of trading process
         self.date_memory = [self._get_date()]
-        #         self.logger = Logger('results',[CSVOutputFormat])
+        #         self.logger = Logger('results_FinRL',[CSVOutputFormat])
         # self.reset()
         self._seed()
 
@@ -216,7 +216,7 @@ class StockTradingEnv(gym.Env):
 
     def _make_plot(self):
         plt.plot(self.asset_memory, "r")
-        plt.savefig(f"reports/results/account_value_trade_{self.episode}.png")
+        plt.savefig(f"reports/results_FinRL/account_value_trade_{self.episode}.png")
         plt.close()
 
     def step(self, actions):
@@ -268,25 +268,25 @@ class StockTradingEnv(gym.Env):
             if (self.model_name != "") and (self.mode != ""):
                 df_actions = self.save_action_memory()
                 df_actions.to_csv(
-                    "reports/results/actions_{}_{}_{}.csv".format(
+                    "reports/results_FinRL/actions_{}_{}_{}.csv".format(
                         self.mode, self.model_name, self.iteration
                     )
                 )
                 df_total_value.to_csv(
-                    "reports/results/account_value_{}_{}_{}.csv".format(
+                    "reports/results_FinRL/account_value_{}_{}_{}.csv".format(
                         self.mode, self.model_name, self.iteration
                     ),
                     index=False,
                 )
                 df_rewards.to_csv(
-                    "reports/results/account_rewards_{}_{}_{}.csv".format(
+                    "reports/results_FinRL/account_rewards_{}_{}_{}.csv".format(
                         self.mode, self.model_name, self.iteration
                     ),
                     index=False,
                 )
                 plt.plot(self.asset_memory, "r")
                 plt.savefig(
-                    "reports/results/account_value_{}_{}_{}.png".format(
+                    "reports/results_FinRL/account_value_{}_{}_{}.png".format(
                         self.mode, self.model_name, self.iteration
                     )
                 )

@@ -62,7 +62,7 @@ class DRLAgent:
             train DRL algorithms in a train dataset
             and output the trained model
         DRL_prediction()
-            make a prediction in a test dataset and get results
+            make a prediction in a test dataset and get results_FinRL
     """
 
     def __init__(self, env):
@@ -212,9 +212,9 @@ class DRLEnsembleAgent:
 
     @staticmethod
     def get_validation_sharpe(iteration, model_name):
-        """Calculate Sharpe ratio based on validation results"""
+        """Calculate Sharpe ratio based on validation results_FinRL"""
         df_total_value = pd.read_csv(
-            f"reports/results/account_value_validation_{model_name}_{iteration}.csv"
+            f"reports/results_FinRL/account_value_validation_{model_name}_{iteration}.csv"
         )
         # If the agent did not make any transaction
         if df_total_value["daily_return"].var() == 0:
@@ -319,7 +319,7 @@ class DRLEnsembleAgent:
                 # print(env_test.render())
                 last_state = trade_env.render()
 
-        # save last results achievement
+        # save last results_FinRL achievement
         df_last_state = pd.DataFrame({"last_state": last_state})
         df_last_state.to_csv(f"docs/last_state_{name}_{i}.csv", index=False)
         return last_state

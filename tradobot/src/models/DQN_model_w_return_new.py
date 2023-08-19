@@ -11,7 +11,7 @@ import pandas as pd
 import random
 import logging
 
-from src.config_model_DQN_return import INITIAL_AMOUNT, WEIGHT_DECAY, NUM_ACTIONS, TIME_LAG,NUM_STOCKS
+from src.config_model_DQN_return import INITIAL_AMOUNT, WEIGHT_DECAY, NUM_ACTIONS, TIME_LAG, NUM_STOCKS
 
 total_balance_idx = 0
 position_stock_idx = 1
@@ -21,7 +21,6 @@ return_portfolio_idx = 4
 cash_left_idx = 5
 percentage_position_stock_idx = 6
 shares_stock_idx = 7
-
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -147,7 +146,7 @@ class DQNNetwork(nn.Module):
         self.hidden_lstm = 32
         self.num_stocks = num_stocks
         self.num_features = num_features
-        self.h_number = int(np.floor(2 / 3 * (self.num_features-14)))  # recommended size
+        self.h_number = int(np.floor(2 / 3 * (self.num_features - 14)))  # recommended size
         self.f_number = (self.h_number + self.hidden_lstm) * 2  # since input will be double
         self.num_actions = num_actions
         self.num_actions_all = num_actions * num_stocks
@@ -280,7 +279,6 @@ class Agent(Portfolio):
     def remember(self, state, actions, closing_prices, reward, next_state, done):
         self.memory.append((state, actions, closing_prices, reward, next_state, done))
 
-
     def reset(self):
         self.reset_portfolio()
         self.epsilon = 1.0  # reset exploration rate
@@ -327,7 +325,7 @@ class Agent(Portfolio):
             # action_index = np.random.choice(valid_indices.numpy())
 
             random_options = torch.randint(low=0, high=self.num_stocks * self.num_actions,
-                                          size=(self.num_stocks, self.num_actions))
+                                           size=(self.num_stocks, self.num_actions))
             random_options = torch.flatten(random_options)
             random_options_allowed = self.maskActions(random_options, self.h, closing_prices)
 
@@ -361,7 +359,8 @@ class Agent(Portfolio):
         self.Q_network_val.eval()
         with torch.no_grad():
             target_rewards = (rewards + self.gamma * (
-            torch.max(self.Q_network_val.forward(next_states), dim=1, keepdim=True)[0]).cpu().numpy() * (1 - dones))[0]
+                torch.max(self.Q_network_val.forward(next_states), dim=1, keepdim=True)[0]).cpu().numpy() * (
+                                          1 - dones))[0]
 
         self.Q_network.train()
         actions_indexes = actions[:, 0]
@@ -395,7 +394,8 @@ class Agent(Portfolio):
 
         with torch.no_grad():
             target_rewards = (rewards + self.gamma * (
-            torch.max(self.Q_network_val.forward(next_states), dim=1, keepdim=True)[0]).cpu().numpy() * (1 - dones))[0]
+                torch.max(self.Q_network_val.forward(next_states), dim=1, keepdim=True)[0]).cpu().numpy() * (
+                                          1 - dones))[0]
 
         # self.Q_network.train()
         actions_indexes = actions[:, 0]
@@ -413,7 +413,6 @@ class Agent(Portfolio):
 
         if self.epsilon > self.epsilon_min:
             self.epsilon *= self.epsilon_decay
-
 
     def execute_action(self, action_index_for_stock_i, closing_prices, stock_i, h, e, dates):
         action_dictionary = {
@@ -458,7 +457,6 @@ class Agent(Portfolio):
         # percentage position per stock -> self.portfolio_state[percentage_position_stock_idx,:]
         # shares per stock -> self.portfolio_state[shares_stock_idx,:]
 
-
         self.timestamp_portfolio = next_dates[0]
         prev_balance = self.portfolio_state[total_balance_idx, 0].copy()
 
@@ -471,15 +469,16 @@ class Agent(Portfolio):
         # UPDATE DAILY RETURNS ##############################
         # update all stock positions based on new closing prices: no.shares * closing prices
         for i in range(NUM_STOCKS):
-            self.portfolio_state[position_stock_idx, i] = self.portfolio_state[shares_stock_idx, i] * next_closing_prices[i]
+            self.portfolio_state[position_stock_idx, i] = self.portfolio_state[shares_stock_idx, i] * \
+                                                          next_closing_prices[i]
 
         # update position total (same for all): sum of all stock positions
         self.portfolio_state[position_portfolio_idx, :] = np.sum(self.portfolio_state[position_stock_idx, :], axis=0)
 
-
         # update total balance: position total + cash left
         for i in range(NUM_STOCKS):
-            self.portfolio_state[total_balance_idx, i] = self.portfolio_state[position_portfolio_idx, 0] + self.portfolio_state[cash_left_idx, 0]
+            self.portfolio_state[total_balance_idx, i] = self.portfolio_state[position_portfolio_idx, 0] + \
+                                                         self.portfolio_state[cash_left_idx, 0]
 
         # update daily return per stocks: position stock - prev position stock
         for i in range(NUM_STOCKS):
@@ -494,7 +493,7 @@ class Agent(Portfolio):
         if self.portfolio_state[position_portfolio_idx, 0] == prev_position_portfolio:
             reward = 0.0
         else:
-            reward = (self.portfolio_state[total_balance_idx, 0].copy() - prev_balance)/prev_balance
+            reward = (self.portfolio_state[total_balance_idx, 0].copy() - prev_balance) / prev_balance
 
         return reward
 
@@ -507,11 +506,10 @@ class Agent(Portfolio):
 
         prev_balance = self.portfolio_state[total_balance_idx, 0]
 
-      
-
         # change the value of position stock_i based on extra amount which is bought
         buy_amount_stock_i = 0.1 * h
-        self.portfolio_state[position_stock_idx, stock_i] = self.portfolio_state[position_stock_idx, stock_i] + buy_amount_stock_i
+        self.portfolio_state[position_stock_idx, stock_i] = self.portfolio_state[
+                                                                position_stock_idx, stock_i] + buy_amount_stock_i
 
         # update position total (same for all): sum of all stock positions
         total_position = np.sum(self.portfolio_state[position_stock_idx, :])
@@ -521,7 +519,8 @@ class Agent(Portfolio):
         self.portfolio_state[cash_left_idx, :] -= buy_amount_stock_i
 
         # update percentage of stock position: position stock/total balance
-        self.portfolio_state[percentage_position_stock_idx, :] = self.portfolio_state[position_stock_idx, :] / self.portfolio_state[total_balance_idx, :]
+        self.portfolio_state[percentage_position_stock_idx, :] = self.portfolio_state[position_stock_idx,
+                                                                 :] / self.portfolio_state[total_balance_idx, :]
 
         # update total balance: position portfolio + cash left
         self.portfolio_state[total_balance_idx, :] = total_position + self.portfolio_state[cash_left_idx, :]
@@ -1175,7 +1174,6 @@ class Agent(Portfolio):
 
         prev_balance = self.portfolio_state[total_balance_idx, 0]
 
-
         # closing price is price per one share for stock_i
         buy_amount_stock_i = 1.0 * closing_prices[stock_i]
 
@@ -1226,8 +1224,6 @@ class Agent(Portfolio):
                 axis=1)
 
             self.explainability_df = pd.concat([self.explainability_df, df_memory_step], ignore_index=True)
-
-
 
     # MASKING ACTIONS BASED ON Q-output
     def maskActions(self, options, h, closing_prices, train=False):
@@ -1280,16 +1276,21 @@ class Agent(Portfolio):
                     options_np[stock_i, action_idx] = -100.0
                 if 'buy_1' in actions_dict[action_idx] and 1.0 * h > self.portfolio_state[cash_left_idx, 0]:
                     options_np[stock_i, action_idx] = -100.0
-                if 'buy_1_share' in actions_dict[action_idx] and closing_prices[stock_i] > self.portfolio_state[cash_left_idx, 0]:
+                if 'buy_1_share' in actions_dict[action_idx] and closing_prices[stock_i] > self.portfolio_state[
+                    cash_left_idx, 0]:
                     options_np[stock_i, action_idx] = -100.0
                 # normally selling options are not permitted if the amount is nopt persent in the position for stock_i
-                if 'sell_0_1' in actions_dict[action_idx] and 0.1 * h > self.portfolio_state[position_stock_idx, stock_i]:
+                if 'sell_0_1' in actions_dict[action_idx] and 0.1 * h > self.portfolio_state[
+                    position_stock_idx, stock_i]:
                     options_np[stock_i, action_idx] = -100.0
-                if 'sell_0_25' in actions_dict[action_idx] and 0.25 * h > self.portfolio_state[position_stock_idx, stock_i]:
+                if 'sell_0_25' in actions_dict[action_idx] and 0.25 * h > self.portfolio_state[
+                    position_stock_idx, stock_i]:
                     options_np[stock_i, action_idx] = -100.0
-                if 'sell_0_50' in actions_dict[action_idx] and 0.5 * h > self.portfolio_state[position_stock_idx, stock_i]:
+                if 'sell_0_50' in actions_dict[action_idx] and 0.5 * h > self.portfolio_state[
+                    position_stock_idx, stock_i]:
                     options_np[stock_i, action_idx] = -100.0
-                if 'sell_0_75' in actions_dict[action_idx] and 0.75 * h > self.portfolio_state[position_stock_idx, stock_i]:
+                if 'sell_0_75' in actions_dict[action_idx] and 0.75 * h > self.portfolio_state[
+                    position_stock_idx, stock_i]:
                     options_np[stock_i, action_idx] = -100.0
                 if 'sell_1' in actions_dict[action_idx] and 1.0 * h > self.portfolio_state[position_stock_idx, stock_i]:
                     options_np[stock_i, action_idx] = -100.0
