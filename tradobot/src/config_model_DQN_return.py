@@ -17,26 +17,24 @@ TIME_LAG = 14
 
 # DQN Params #####################
 #NUM_EPOCHS = 10
-NUM_EPOCHS = 5
+NUM_EPOCHS = 10
 # Define the weight decay value
 # WEIGHT_DECAY = 1e-4
-WEIGHT_DECAY = 1e-3
-
+WEIGHT_DECAY = 1e-4
+NUM_SAMPLING = 1
 
 # GAMMA = 0.99
-GAMMA = 0.90
+GAMMA = 0.99
 EPSILON = 1.0
 EPSILON_MIN = 0.01
-EPSILON_DECAY = 0.90
-
-NUM_SAMPLING = 10
+EPSILON_DECAY = 0.99
 #EPSILON_DECAY = 0.9900
 # LEARNING_RATE = 0.0001
 LEARNING_RATE = 0.0001
 # BATCH_SIZE = 16
+#BATCH_SIZE = 32
 BATCH_SIZE = 32
-#BATCH_SIZE = 68
-TAU = 1e-3
+TAU = 1e-3 # higher tau, higher convergence but more training instability
 
 
 # DATES #######################

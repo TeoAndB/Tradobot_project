@@ -30,11 +30,11 @@ def main(input_filepath, output_filepath):
     data_type = "daily_frequency_data"
     # data_type = "minute_frequency_data"
 
-    # data_set = "training_last_epoch"
+    data_set = "training_last_epoch"
     # data_set = "validation_last_epoch"
-    data_set = "testing"
+    # data_set = "testing"
 
-    explainability_data = "testing_explainability_1_dataset1_1Day_w14Lags_HA-WBA-INCY_2023-08-17_22_12_HuberLoss_L1L2reg_wLSTM_article_dates.csv"
+    explainability_data = "training_explainability_dataset1_1Day_w14Lags_HA-WBA-INCY_2023-08-21_22_56_w_memory_reset.csv"
     df = pd.read_csv(f'{input_filepath}/{reward_type}/{data_type}/{data_set}/{explainability_data}')
 
     dataset_name = "HA-WBA-INCY"
@@ -103,7 +103,7 @@ def main(input_filepath, output_filepath):
     # Set labels and title
     ax.set_xlabel("Date")
     ax.set_ylabel("Price per share in $")
-    ax.set_title(f'Agent trading decisions for {data_set} period according to the \nclosing price evolution of {dataset_name} stocks')
+    ax.set_title(f'Agent trading decisions for {data_set} period according to the \nclosing price evolution of {dataset_name} stocks\n')
 
     legend_elements = []
     for tic in tics:

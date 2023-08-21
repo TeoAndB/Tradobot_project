@@ -11,7 +11,7 @@ import pandas as pd
 import random
 import logging
 
-from src.config_model_DQN_return import INITIAL_AMOUNT, WEIGHT_DECAY, NUM_ACTIONS, TIME_LAG, NUM_STOCKS
+from src.config_model_DQN_return import INITIAL_AMOUNT, NUM_ACTIONS, TIME_LAG, NUM_STOCKS, WEIGHT_DECAY, NUM_SAMPLING
 
 total_balance_idx = 0
 position_stock_idx = 1
@@ -236,6 +236,7 @@ class Agent(Portfolio):
         super().__init__(balance=balance, num_stocks=num_stocks, name_stocks=name_stocks)
 
         self.num_stocks = num_stocks
+        self.utility = 0.0
         self.num_actions = len(actions_dict)
         self.actions_dict = actions_dict
         self.actions_dict = actions_dict
@@ -273,8 +274,7 @@ class Agent(Portfolio):
 
         self.optimizer = torch.optim.Adam(self.Q_network.parameters(), lr=self.learning_rate, weight_decay=WEIGHT_DECAY)
 
-        self.loss_fn = torch.nn.SmoothL1Loss()
-        # self.loss_fn = torch.nn.HuberLoss()
+        self.loss_fn = torch.nn.MSELoss()
 
     def remember(self, state, actions, closing_prices, reward, next_state, done):
         self.memory.append((state, actions, closing_prices, reward, next_state, done))
@@ -284,6 +284,13 @@ class Agent(Portfolio):
         self.epsilon = 1.0  # reset exploration rate
         self.memory = []
         self.batch_loss_history = []
+        self.utility = 0.0
+
+    def soft_reset(self):
+        # self.epsilon = 1.0  # reset exploration rate
+        # self.memory = []
+        self.batch_loss_history = []
+        self.utility = 0.0
 
     def act_deterministic(self, state, closing_prices):
         # state = state.reshape((-1,self.num_stocks * self.num_features_total))
@@ -314,15 +321,7 @@ class Agent(Portfolio):
 
             action_index = torch.argmax(options_allowed).item()
 
-            # action = np.argmax(action_values.cpu().data.numpy())
         else:
-            # random_actions = torch.randint(low=0, high=self.num_actions, size=(self.num_stocks,))
-            # allowed_actions = self.maskActions_evaluation(random_actions, self.h, closing_prices)
-            #
-            # valid_indices = torch.nonzero(allowed_actions).squeeze()
-            # if valid_indices.nelement() == 0:
-            #     raise ValueError("No valid actions available.")
-            # action_index = np.random.choice(valid_indices.numpy())
 
             random_options = torch.randint(low=0, high=self.num_stocks * self.num_actions,
                                            size=(self.num_stocks, self.num_actions))
@@ -433,13 +432,16 @@ class Agent(Portfolio):
         selected_function = action_dictionary.get(action_index_for_stock_i)
         if selected_function is not None:
             # Call the selected function with the provided arguments
-            selected_function(closing_prices, stock_i, h, e, dates)
+            amount_transaction = selected_function(closing_prices, stock_i, h, e, dates)
             # Process the result if needed
         else:
             # Handle the case when action_index_for_stock_i is not found in the dictionary
             print("Invalid action index")
 
-    def update_portfolio(self, next_closing_prices, next_dates, stock_i):
+        return amount_transaction
+
+
+    def update_portfolio(self, next_closing_prices, next_dates, stock_i, amount_transaction):
 
         # Explanation:
         # self.portfolio_state = np.asarray([self.total_balances,self.position_stocks,self.position_portfolio,
@@ -493,9 +495,17 @@ class Agent(Portfolio):
         if self.portfolio_state[position_portfolio_idx, 0] == prev_position_portfolio:
             reward = 0.0
         else:
-            reward = (self.portfolio_state[total_balance_idx, 0].copy() - prev_balance) / prev_balance
+            if amount_transaction:
+                reward = (self.portfolio_state[total_balance_idx, 0].copy() - prev_balance)/prev_balance
 
+                self.utility += reward
+
+                return reward
+            reward = 0.0
+
+        self.utility += reward
         return reward
+
 
     def buy_0_1(self, closing_prices, stock_i, h, e, dates):
 
@@ -555,6 +565,8 @@ class Agent(Portfolio):
 
             self.explainability_df = pd.concat([self.explainability_df, df_memory_step], ignore_index=True)
 
+        return buy_amount_stock_i
+
     def buy_0_25(self, closing_prices, stock_i, h, e, dates):
 
         # self.portfolio_state = np.asarray([self.total_balances,self.position_stocks,self.position_portfolio,
@@ -612,6 +624,8 @@ class Agent(Portfolio):
                 axis=1)
 
             self.explainability_df = pd.concat([self.explainability_df, df_memory_step], ignore_index=True)
+
+        return buy_amount_stock_i
 
     def buy_0_50(self, closing_prices, stock_i, h, e, dates):
 
@@ -671,6 +685,8 @@ class Agent(Portfolio):
 
             self.explainability_df = pd.concat([self.explainability_df, df_memory_step], ignore_index=True)
 
+        return buy_amount_stock_i
+
     def buy_0_75(self, closing_prices, stock_i, h, e, dates):
 
         # self.portfolio_state = np.asarray([self.total_balances,self.position_stocks,self.position_portfolio,
@@ -728,6 +744,8 @@ class Agent(Portfolio):
                 axis=1)
 
             self.explainability_df = pd.concat([self.explainability_df, df_memory_step], ignore_index=True)
+
+        return buy_amount_stock_i
 
     def buy_1(self, closing_prices, stock_i, h, e, dates):
 
@@ -787,6 +805,8 @@ class Agent(Portfolio):
 
             self.explainability_df = pd.concat([self.explainability_df, df_memory_step], ignore_index=True)
 
+        return buy_amount_stock_i
+
     def sell_0_1(self, closing_prices, stock_i, h, e, dates):
 
         # self.portfolio_state = np.asarray([self.total_balances,self.position_stocks,self.position_portfolio,
@@ -844,6 +864,8 @@ class Agent(Portfolio):
                 axis=1)
 
             self.explainability_df = pd.concat([self.explainability_df, df_memory_step], ignore_index=True)
+
+        return sell_amount_stock_i
 
     def sell_0_25(self, closing_prices, stock_i, h, e, dates):
 
@@ -903,6 +925,8 @@ class Agent(Portfolio):
 
             self.explainability_df = pd.concat([self.explainability_df, df_memory_step], ignore_index=True)
 
+        return sell_amount_stock_i
+
     def sell_0_50(self, closing_prices, stock_i, h, e, dates):
 
         # self.portfolio_state = np.asarray([self.total_balances,self.position_stocks,self.position_portfolio,
@@ -960,6 +984,8 @@ class Agent(Portfolio):
                 axis=1)
 
             self.explainability_df = pd.concat([self.explainability_df, df_memory_step], ignore_index=True)
+
+        return sell_amount_stock_i
 
     def sell_0_75(self, closing_prices, stock_i, h, e, dates):
 
@@ -1019,6 +1045,8 @@ class Agent(Portfolio):
 
             self.explainability_df = pd.concat([self.explainability_df, df_memory_step], ignore_index=True)
 
+        return sell_amount_stock_i
+
     def sell_1(self, closing_prices, stock_i, h, e, dates):
 
         # self.portfolio_state = np.asarray([self.total_balances,self.position_stocks,self.position_portfolio,
@@ -1077,12 +1105,17 @@ class Agent(Portfolio):
 
             self.explainability_df = pd.concat([self.explainability_df, df_memory_step], ignore_index=True)
 
+        return sell_amount_stock_i
+
+
+
     def hold(self, closing_prices, stock_i, h, e, dates):
         # self.portfolio_state = np.asarray([self.total_balances,self.position_stocks,self.position_portfolio,
         #                                      self.daily_return_stock,self.daily_return_total,
         #                                      self.cash_left, self.percentage_positions, self.shares_per_stock])
         # shape: (8, num_stocks)
 
+        amount_transactioned = 0.0
         # Explainability for last epoch
         if e == (self.num_epochs - 1):
             dates = dates
@@ -1108,6 +1141,8 @@ class Agent(Portfolio):
                 axis=1)
 
             self.explainability_df = pd.concat([self.explainability_df, df_memory_step], ignore_index=True)
+
+        return amount_transactioned
 
     def sell_everything(self, closing_prices, stock_i, h, e, dates):
         # self.portfolio_state = np.asarray([self.total_balances,self.position_stocks,self.position_portfolio,
@@ -1164,6 +1199,8 @@ class Agent(Portfolio):
                 axis=1)
 
             self.explainability_df = pd.concat([self.explainability_df, df_memory_step], ignore_index=True)
+
+        return balance_sold
 
     def buy_1_share(self, closing_prices, stock_i, h, e, dates):
 
@@ -1224,6 +1261,8 @@ class Agent(Portfolio):
                 axis=1)
 
             self.explainability_df = pd.concat([self.explainability_df, df_memory_step], ignore_index=True)
+
+        return buy_amount_stock_i
 
     # MASKING ACTIONS BASED ON Q-output
     def maskActions(self, options, h, closing_prices, train=False):

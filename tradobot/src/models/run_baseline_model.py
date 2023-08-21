@@ -53,7 +53,7 @@ def main(input_filepath, output_filepath):
     final_training_year = '2019'
 
     val_start_date = '2020-01-01'
-    val_end_date = '2021-12-31'
+    val_end_date = '2022-12-31'
     final_validation_year = '2021'
 
     test_start_date = '2022-01-01'
@@ -97,7 +97,7 @@ def main(input_filepath, output_filepath):
     equal_amount = np.floor(INITIAL_AMOUNT / agent_balanced.num_stocks)
 
     years_list_training = []
-    yearly_profit_training = []
+    yearly_balance_training = []
 
     timestamps_list_training = [f'{final_training_year}-01-01']
     timestamps_list_validation = [f'{final_validation_year}-01-01']
@@ -158,7 +158,7 @@ def main(input_filepath, output_filepath):
 
         if year != next_year:
             years_list_training.append(year)
-            yearly_profit_training.append(agent_balanced.portfolio_state[0, 0])
+            yearly_balance_training.append(agent_balanced.portfolio_state[0, 0])
             agent_balanced.reset_portfolio()
 
             # re-buy equal amount of shares
@@ -176,7 +176,7 @@ def main(input_filepath, output_filepath):
         if done:
             # keep track of yearly profit
             years_list_training.append(year)
-            yearly_profit_training.append(agent_balanced.portfolio_state[0, 0])
+            yearly_balance_training.append(agent_balanced.portfolio_state[0, 0])
 
 
     # printing portfolio state for training at the end
@@ -206,7 +206,7 @@ def main(input_filepath, output_filepath):
 
     # at the beginning, invest equal amount in the same stock
     equal_amount = np.floor(INITIAL_AMOUNT / agent_balanced.num_stocks)
-    yearly_profit_validation = []
+    yearly_balance_validation = []
     years_list_validation = []
 
     for t in range(l_validation):
@@ -263,7 +263,7 @@ def main(input_filepath, output_filepath):
         if year != next_year:
 
             years_list_validation.append(year)
-            yearly_profit_validation.append(agent_balanced.portfolio_state[0, 0])
+            yearly_balance_validation.append(agent_balanced.portfolio_state[0, 0])
             agent_balanced.reset_portfolio()
 
             # re-buy equal amount
@@ -282,7 +282,7 @@ def main(input_filepath, output_filepath):
         if done:
             # keep track of yearly profit
             years_list_validation.append(year)
-            yearly_profit_validation.append(agent_balanced.portfolio_state[0, 0])
+            yearly_balance_validation.append(agent_balanced.portfolio_state[0, 0])
 
     # printing portfolio state for validation at the end
     df_portfolio_state = pd.DataFrame(agent_balanced.portfolio_state, columns=cols_stocks)
@@ -370,9 +370,9 @@ def main(input_filepath, output_filepath):
 
     # Plot for training data
     ax0.plot(dates_training, cumulated_profits_list_training)
-    ax0.set_title(f'Balanced Agent: Cumulated Profits during Training - year {final_training_year})')
+    ax0.set_title(f'Balanced Agent: Monetary Balance during Training - year {final_training_year})')
     ax0.set_xlabel("Dates")
-    ax0.set_ylabel("Cumulated Profits")
+    ax0.set_ylabel("Monetary Balance")
     ax0.tick_params(axis='x', rotation=45)
     ax0.grid(True)
 
@@ -386,9 +386,9 @@ def main(input_filepath, output_filepath):
 
     # Plot for validation data
     ax1.plot(dates_validation, cumulated_profits_list_validation)
-    ax1.set_title(f'Balanced Agent: Cumulated Profits during Evaluation - year {final_validation_year})')
+    ax1.set_title(f'Balanced Agent: Monetary Balance during Evaluation - year {final_validation_year})')
     ax1.set_xlabel("Dates")
-    ax1.set_ylabel("Cumulated Profits")
+    ax1.set_ylabel("Monetary Balance")
     ax1.tick_params(axis='x', rotation=45)
     ax1.grid(True)
 
@@ -401,9 +401,9 @@ def main(input_filepath, output_filepath):
 
     # Plot for testing data
     ax2.plot(dates_testing, cumulated_profits_list_testing)
-    ax2.set_title(f'Balanced Agent: Cumulated Profits during Testing - year {final_testing_year})')
+    ax2.set_title(f'Balanced Agent: Monetary Balance during Testing - year {final_testing_year})')
     ax2.set_xlabel("Dates")
-    ax2.set_ylabel("Cumulated Profits")
+    ax2.set_ylabel("Monetary Balance")
     ax2.tick_params(axis='x', rotation=45)
     ax2.grid(True)
 
@@ -425,38 +425,49 @@ def main(input_filepath, output_filepath):
     plt.show()
 
     # Average profit for training and validation
-    avg_profit_training = sum(yearly_profit_training)/len(yearly_profit_training)
-    avg_profit_validation = sum(yearly_profit_validation)/len(yearly_profit_validation)
+    avg_profit_training = sum(yearly_balance_training)/len(yearly_balance_training)
+    avg_profit_validation = sum(yearly_balance_validation)/len(yearly_balance_validation)
     avg_profit_testing = cumulated_profits_list_testing[-1]
-    avg_yearly_profit = [avg_profit_training, avg_profit_validation, avg_profit_testing]
+    avg_cumulated_balance = [avg_profit_training, avg_profit_validation, avg_profit_testing]
+    avg_yearly_profit = [avg_profit_training/INITIAL_AMOUNT, avg_profit_validation/INITIAL_AMOUNT, avg_profit_testing/INITIAL_AMOUNT]
     dataset_types = ['training','validation','testing']
 
-    avg_yearly_profit_df = pd.DataFrame(
+    avg_yearly_balance_df = pd.DataFrame(
         {'dataset': dataset_types,
+         'avg_yearly_balance': avg_cumulated_balance,
          'avg_yearly_profit': avg_yearly_profit
          })
 
-    avg_yearly_profit_df.to_csv(
-        f'./reports/tables/results_DQN/baseline_results/{data_type}/avg_yearly_profit_{dataset_name}_{date_string}.csv', index=False)
+    avg_yearly_balance_df.to_csv(
+        f'./reports/tables/results_DQN/baseline_results/{data_type}/avg_yearly_balance_{dataset_name}_{date_string}.csv', index=False)
+
+    print(f'Baseline Model: Overall Average yearly profit \n{avg_yearly_balance_df}')
+
+    
     # Profit per year
     profit_per_year_last_epoch_training = pd.DataFrame(
         {'year_training': years_list_training,
-         'profit_per_year_training': yearly_profit_training
+         'balance_per_year_training': yearly_balance_training,
+         'yearly_profit_training': [balance/INITIAL_AMOUNT for balance in yearly_balance_training]
          })
 
     profit_per_year_last_epoch_validation = pd.DataFrame(
         {
          'year_validation': years_list_validation,
-         'profit_per_year_training': yearly_profit_validation
+         'balance_per_year_validation': yearly_balance_validation,
+         'yearly_profit_validation': [balance/INITIAL_AMOUNT for balance in yearly_balance_validation]
          })
 
     profit_per_year_last_epoch_training.to_csv(
         f'./reports/tables/results_DQN/baseline_results/{data_type}/profit_per_year_last_epoch_training_{dataset_name}_{date_string}.csv', index=False)
 
+    print(f'Baseline Model: Profit per Year for Last Epoch - Training \n{profit_per_year_last_epoch_training}')
+
+
     profit_per_year_last_epoch_validation.to_csv(
         f'./reports/tables/results_DQN/baseline_results/{data_type}/profit_per_year_last_epoch_validation_{dataset_name}_{date_string}.csv', index=False)
 
-
+    print(f'Baseline Model: Profit per Year for Last Epoch - Validation \n{profit_per_year_last_epoch_validation}')
 
 
 if __name__ == '__main__':

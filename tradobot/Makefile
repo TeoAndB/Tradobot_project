@@ -68,6 +68,10 @@ run_baseline: requirements
 visualize_explainability: requirements
 	$(PYTHON_INTERPRETER) src/visualization/visualize.py reports/results_DQN reports/explainability_figures
 
+# Visualize losses files
+visualize_losses: requirements
+	$(PYTHON_INTERPRETER) src/visualization/visualize_losses.py reports/tables/results_DQN reports/explainability_figures
+
 ## Delete all compiled Python files
 clean:
 	find . -type f -name "*.py[co]" -delete
