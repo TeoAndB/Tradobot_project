@@ -54,9 +54,6 @@ data_alpaca: requirements
 train_DQN_return: requirements
 	$(PYTHON_INTERPRETER) src/models/train_DQNmodel_return.py data/processed models
 
-train_DQN_return_new: requirements
-	$(PYTHON_INTERPRETER) src/models/train_DQNmodel_return_new.py data/processed models
-
 train_DQN_sharpe: requirements
 	$(PYTHON_INTERPRETER) src/models/train_DQNmodel_sharpe.py data/processed models
 
@@ -66,11 +63,15 @@ run_baseline: requirements
 
 # Visualize explainability files
 visualize_explainability: requirements
-	$(PYTHON_INTERPRETER) src/visualization/visualize.py reports/results_DQN reports/explainability_figures
+	$(PYTHON_INTERPRETER) src/visualization/visualize_explainability.py reports/results_DQN reports/explainability_figures
 
 # Visualize losses files
 visualize_losses: requirements
 	$(PYTHON_INTERPRETER) src/visualization/visualize_losses.py reports/tables/results_DQN reports/explainability_figures
+
+# Visualize losses files
+visualize_profits_model_comparison: requirements
+	$(PYTHON_INTERPRETER) src/visualization/visualize_profits_model_comparison.py reports/tables/results_DQN reports/profits_model_comparison
 
 ## Delete all compiled Python files
 clean:

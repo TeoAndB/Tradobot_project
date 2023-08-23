@@ -33,7 +33,7 @@ def main(input_filepath, output_filepath):
     data = pd.read_csv(f'{input_filepath}/{DATASET}', index_col=0)
     #data = normalize_dataframe(data.copy())
 
-    selected_adjustments = ''
+    selected_adjustments = 'with_CQL'
     #data_type = "minute_frequency_data"
     data_type = "daily_frequency_data"
     reward_type = "reward_portfolio_return"
@@ -47,7 +47,6 @@ def main(input_filepath, output_filepath):
     cols_stocks = data['tic'].unique().tolist()
 
     # Set the seed for reproducibility
-    random_seed = 42
     unique_dates = data['date'].unique().tolist()
 
     # Define the desired date ranges
@@ -57,18 +56,18 @@ def main(input_filepath, output_filepath):
 
     # validation
     val_start_date = '2020-01-01'
-    val_end_date = '2021-12-31'
-    final_validation_year = '2021'
+    val_end_date = '2022-12-31'
+    final_validation_year = '2022'
 
     # testing
-    test_start_date = '2022-01-01'
-    test_end_date = '2022-12-31'
-    final_testing_year = '2022'
+    test_start_date = '2021-01-01'
+    test_end_date = '2021-12-31'
+    final_testing_year = '2021'
 
     # extra insights for year 2021
-    test_start_date_2 = '2021-01-01'
-    test_end_date_2 = '2021-12-31'
-    final_testing_year_2 = '2021'
+    test_start_date_2 = '2022-01-01'
+    test_end_date_2 = '2022-12-31'
+    final_testing_year_2 = '2022'
 
     # Filter data based on date ranges
     train_data = data[(data['date'] >= train_start_date) & (data['date'] <= train_end_date)]
@@ -90,191 +89,179 @@ def main(input_filepath, output_filepath):
     action_index_arr_mask = np.arange(0, agent.num_actions * agent.num_stocks, 1, dtype=int).reshape(agent.num_stocks,
                                                                                                      agent.num_actions)
 
+    # SPLITTING DATA INTO EPISODES FOR TRAINING AND VALIDATION ##################################################################
+
+    # Partition the unique dates by year
+    train_data = train_data.copy()
+    train_data['date'] = pd.to_datetime(train_data['date'])
+    unique_dates_training = pd.to_datetime(train_data['date'].unique())
+
+    dates_list_by_year = {}
+    for date in unique_dates_training:
+        year = date.year
+        if year not in dates_list_by_year:
+            dates_list_by_year[year] = []
+        dates_list_by_year[year].append(date)
+
+    validation_data = validation_data.copy()
+    validation_data['date'] = pd.to_datetime(validation_data['date'])
+
+    unique_dates_validation = validation_data['date'].unique()
+
+    dates_list_by_year_val = {}
+    for date in unique_dates_validation:
+        year = pd.Timestamp(date).year
+        if year not in dates_list_by_year_val:
+            dates_list_by_year_val[year] = []
+        dates_list_by_year_val[year].append(date)
+
     # TRAINING lists for keeping track of losses and profits #############################################################
-    unique_dates_training = train_data['date'].unique()
 
     train_loss_history = []
     loss_history_per_epoch_training = []
     epoch_numbers_history_training = []
-    cumulated_profits_list_training = [INITIAL_AMOUNT]
     cumulated_profits_list_training_per_epcoh_list = [INITIAL_AMOUNT]
     epoch_numbers_history_training_for_profits = [0]
     timestamps_list_training = [f'{final_training_year}-01-01']
+    utility_list_training_per_epoch = [0.0]
+    epoch_numbers_history_training_loss = []
+
 
     # VALIDATION lists for keeping track of losses and profits ###########################################################
 
-    unique_dates_validation = validation_data['date'].unique()
-
-    val_loss_history = []
+    validation_loss_history = []
     loss_history_per_epoch_validation = []
     epoch_numbers_history_validation = []
-    cumulated_profits_list_validation = [INITIAL_AMOUNT]
     cumulated_profits_list_validation_per_epcoh_list = [INITIAL_AMOUNT]
     epoch_numbers_history_val_for_profits = [0]
     epoch_numbers_history_validation_loss = []
+    utility_list_validation_per_epoch = [0.0]
 
     timestamps_list_validation = [f'{final_validation_year}-01-01']
 
-    epoch_numbers_history_training_loss = []
-    for e in range(agent.num_epochs):
-        print(f'Epoch {e+1}')
-        data_window = train_data.loc[(train_data['date'] == unique_dates_training[0])]
-        initial_state = getState(data_window, 0, agent)
-        closing_prices = data_window['close'].tolist()
 
-        cumulated_profits_list_training = [INITIAL_AMOUNT]
-        cumulated_profits_list_validation = [INITIAL_AMOUNT]
-
+    # epochs
+    for e in range(NUM_EPOCHS):
         agent.reset()
 
-        # TRAINING PHASE ##################################################################
-
-        l_training = len(unique_dates_training)
-        max_profit = 0.0
-        loss_per_50_timesteps = []
-        yearly_profit_training = []
-        # final_penalty = 1.1
         years_list_training = []
+        yearly_balance_training_last_epoch = []
 
-        for t in range(l_training):
-
-            data_window = train_data.loc[(train_data['date'] == unique_dates_training[t])]
-
-            # replace NaN values with 0.0
-            data_window = data_window.fillna(0)
-            # get the date
-            dates = data_window['date'].tolist()
-            # get the year for assuming yearly profits
-            data_window = data_window.copy()
-            data_window['date'] = pd.to_datetime(data_window['date'])
-            years = data_window['date'].dt.strftime('%Y')
-            year = years.iloc[0]
-
-            state = getState(data_window, t, agent)
-
-            # take action a, observe reward and next_state
-            closing_prices = data_window['close'].tolist()
-
-            action_index = agent.act(state, closing_prices)
-
-            # Find the indeces (stock_i, action_index_for_stock_i) where action_index  is present in action_index_arr_mask
-
-            indices = np.where(action_index_arr_mask == action_index)
-            stock_i, action_index_for_stock_i = map(int, indices)
-
-            agent.execute_action(action_index_for_stock_i, closing_prices, stock_i, h, e, dates)
-
-            # Next state should append the t+1 data and portfolio_state. It also updates the position of agent portfolio based on agent position
-
-            if t<(l_training-1):
-                next_data_window = train_data.loc[(train_data['date'] == unique_dates_training[t + 1])]
-                next_state = getState(next_data_window, t+1, agent)
-                next_closing_prices = next_data_window['close'].tolist()
-                next_dates = next_data_window['date'].tolist()
-            else:
-                next_state = state
-                next_closing_prices = closing_prices
-                next_dates = dates
-
-            reward = agent.update_portfolio(next_closing_prices, next_dates, stock_i)
-
-            agent.reward = reward
-            # agent.reward = reward * final_penalty
-            # # reset penalty
-            # if final_penalty != 1.0:
-            #     final_penalty = 1.0
-
-            done = True if t == l_training - 1 else False
-
-            agent.remember(state=state, actions=(action_index, action_index_for_stock_i, stock_i, h), closing_prices=closing_prices,
-                           reward=reward, next_state=next_state, done=done)
-
-            if len(agent.memory) >= agent.batch_size:
-                agent.expReplay(e) # will also save the model on the last epoch
-
-                batch_loss_history = agent.batch_loss_history.copy()
-                train_loss_history.extend(batch_loss_history)
-
-
-            if (t%50 == 0 or t==(l_training-1)) and len(train_loss_history)>0:
-                loss_per_epoch_log = sum(train_loss_history) / len(train_loss_history)
-                loss_per_50_timesteps.append(loss_per_epoch_log)
-                print(f'Epoch {e+1}, Training Loss: {loss_per_epoch_log:.4f}')
-                print(f'Epoch {e+1}, Balance: {agent.portfolio_state[0,0]:.4f}')
-
-            # next_data_window['date'] = pd.to_datetime(next_data_window['date'])
-            # next_year = next_data_window['date'].iloc[0].year
-            next_data_window = next_data_window.copy()
-            next_data_window['date'] = pd.to_datetime(next_data_window['date'])
-            next_years = next_data_window['date'].dt.strftime('%Y')
-            next_year = next_years.iloc[0]
-
-            if year != next_year:
-
-                # keep track of yearly profit
-                years_list_training.append(year)
-                yearly_profit_training.append(agent.portfolio_state[0, 0])
+        # episodes
+        for year, year_episode_dates in dates_list_by_year.items():
                 agent.reset_portfolio()
+                agent.soft_reset()
+                print(f'EPOCH: {e + 1} - Training episode {e+1}, year {year}')
 
-                # losses = [1, 0.95, 0.9, 0.85, 0.8, 0.75, 0.7, 0.6, 0.55, 0.5, 0.35, 0.3, 0.25]
-                # for i in losses:
-                #     if agent.portfolio_state[0, 0] < INITIAL_AMOUNT * i:
-                #         distance_from_no_loss = 1 - i
-                #         final_penalty = -100.0 * (distance_from_no_loss ** 2)
-                #
-                # profits = [1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0]
-                # for i in profits:
-                #     if agent.portfolio_state[0, 0] > INITIAL_AMOUNT * i:
-                #         bonus = 100.0 * (i**2)
-                #         final_penalty = bonus
+                data_window = train_data.loc[(train_data['date'] == year_episode_dates[0])]
+                initial_state = getState(data_window, 0, agent)
+                closing_prices = data_window['close'].tolist()
 
-            if e==(agent.num_epochs-1):
+                l_training = len(year_episode_dates)
+                max_profit = 0.0
+                loss_per_50_timesteps = []
+                yearly_utility_list_training = []
+                yearly_balance_training = []
 
-                if year == final_training_year:
-                    # track cumulated profits
-                    cumulated_profit_per_epoch = agent.portfolio_state[0, 0]
-                    cumulated_profits_list_training.append(cumulated_profit_per_epoch)
-                    timestamps_list_training.append(agent.timestamp_portfolio)
+                cumulated_rewards_list_training = [0.0]
+                cumulated_profits_list_training = [INITIAL_AMOUNT]
 
-            # losses = [1,0.95,0.9,0.85,0.8,0.75,0.7,0.6,0.55,0.5,0.35,0.3,0.25]
-            # for i in losses:
-            #     if agent.portfolio_state[0,0] < INITIAL_AMOUNT*i:
-            #         distance_from_no_loss = 1 - i
-            #         final_penalty = -10.0 * (distance_from_no_loss ** 2)
-            #
-            # profits = [1.1,1.2,1.3,1.4,1.5,1.6,1.7,1.8,1.9,2.0]
-            # for i in profits:
-            #     if agent.portfolio_state[0,0] > INITIAL_AMOUNT*i:
-            #         # print("Giving bonus")
-            #         bonus = 10.0 * (i**2)
-            #         final_penalty = bonus
+                for t in range(l_training):
 
-            done = True if t == l_training - 1 else False
+                    data_window = train_data.loc[(train_data['date'] == year_episode_dates[t])]
 
-            if done:
-                # keep track of yearly profit
-                years_list_training.append(year)
-                yearly_profit_training.append(agent.portfolio_state[0, 0])
+                    # replace NaN values with 0.0
+                    data_window = data_window.fillna(0)
+                    # get the date
+                    dates = data_window['date'].tolist()
+                    # get the year for assuming yearly profits
+                    data_window = data_window.copy()
+                    data_window['date'] = pd.to_datetime(data_window['date'])
+                    years = data_window['date'].dt.strftime('%Y')
+                    year = years.iloc[0]
 
-                # # penalyze if lower balance at the end of the run
-                # losses = [1, 0.95, 0.9, 0.85, 0.8, 0.75, 0.7, 0.6, 0.55, 0.5, 0.35, 0.3, 0.25]
-                # for i in losses:
-                #     if agent.portfolio_state[0, 0] < INITIAL_AMOUNT * i:
-                #         distance_from_no_loss = 1 - i
-                #         final_penalty = -100.0 * (distance_from_no_loss ** 2)
-                #
-                # # compensate if lower balance at the end of the run
-                # profits = [1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0]
-                # for i in profits:
-                #     if agent.portfolio_state[0, 0] > INITIAL_AMOUNT * i:
-                #         # print("Giving bonus")
-                #         bonus = 100.0 * (i ** 2)
-                #         final_penalty = bonus
+                    state = getState(data_window, t, agent)
 
+                    # take action a, observe reward and next_state
+                    closing_prices = data_window['close'].tolist()
 
-        yearly_profit_training_avg = sum(yearly_profit_training) / len(yearly_profit_training)
+                    # act epsilon-greedy
+                    action_index = agent.act(state, closing_prices)
 
-        cumulated_profits_list_training_per_epcoh_list.append(yearly_profit_training_avg)
+                    indices = np.where(action_index_arr_mask == action_index)
+                    stock_i, action_index_for_stock_i = map(int, indices)
+
+                    # Execute action
+                    amount_transaction = agent.execute_action(action_index_for_stock_i, closing_prices, stock_i, h, e, dates)
+
+                    # Next state should append the t+1 data and portfolio_state. It also updates the position of agent portfolio based on agent position
+
+                    if t<(l_training-1):
+                        next_data_window = train_data.loc[(train_data['date'] == year_episode_dates[t + 1])]
+                        next_state = getState(next_data_window, t+1, agent)
+                        next_closing_prices = next_data_window['close'].tolist()
+                        next_dates = next_data_window['date'].tolist()
+                    else:
+                        next_state = state
+                        next_closing_prices = closing_prices
+                        next_dates = dates
+
+                    # Update portfolio and observe reward
+                    reward = agent.update_portfolio(next_closing_prices, next_dates, stock_i, amount_transaction)
+
+                    done = True if t == l_training - 1 else False
+
+                    agent.remember(state=state, actions=(action_index, action_index_for_stock_i, stock_i, h), closing_prices=closing_prices,
+                                   reward=reward, next_state=next_state, done=done)
+
+                    # for i in range(NUM_SAMPLING):
+                    if len(agent.memory) >= agent.batch_size:
+                        for i in range(NUM_SAMPLING):
+                            agent.expReplay(e) # will also save the model on the last epoch
+
+                            batch_loss_history = agent.batch_loss_history.copy()
+                            train_loss_history.extend(batch_loss_history)
+
+                    if (t%50 == 0 or t==(l_training-1)) and len(train_loss_history)>0:
+                        loss_per_epoch_log = sum(train_loss_history) / len(train_loss_history)
+                        loss_per_50_timesteps.append(loss_per_epoch_log)
+                        print(f'Epoch {e+1}, year {year}, Training Loss: {loss_per_epoch_log:.4f}')
+                        print(f'Epoch {e+1}, year {year}, Balance: {agent.portfolio_state[0,0]:.4f}')
+                        print(f'Epoch {e + 1}, year {year}, Utility: {agent.utility:.4f} \n')
+
+                    # next_data_window['date'] = pd.to_datetime(next_data_window['date'])
+                    # next_year = next_data_window['date'].iloc[0].year
+                    next_data_window = next_data_window.copy()
+                    next_data_window['date'] = pd.to_datetime(next_data_window['date'])
+                    next_years = next_data_window['date'].dt.strftime('%Y')
+                    next_year = next_years.iloc[0]
+
+                    # track profits for the final year during the last epoch
+                    if e == NUM_EPOCHS-1 and  year == final_training_year :
+                        cumulated_profits_list_training.append(agent.portfolio_state[0, 0])
+                        cumulated_rewards_list_training.append(agent.utility)
+                        timestamps_list_training.append(agent.timestamp_portfolio.date().strftime('%Y-%m-%d'))
+
+                    done = True if t == l_training - 1 else False
+
+                    if done and e == NUM_EPOCHS - 1:
+                        years_list_training.append(year)
+                        yearly_balance_training_last_epoch.append(agent.portfolio_state[0, 0])
+
+                    if done:
+                        yearly_balance_training.append(agent.portfolio_state[0, 0])
+                        # printing portfolio state
+                        df_portfolio_state = pd.DataFrame(agent.portfolio_state, columns=cols_stocks)
+                        df_portfolio_state.insert(0, 'TIC', agent.portfolio_state_rows)
+                        print(f'Training: Portfolio state for epoch {e + 1}, year {year} is \n: {df_portfolio_state}')
+                        yearly_utility_list_training.append(agent.utility)
+
+        average_utility_training = sum(yearly_utility_list_training)/len(yearly_utility_list_training)
+        yearly_balance_training_avg = sum(yearly_balance_training) / len(yearly_balance_training)
+
+        utility_list_training_per_epoch.append(average_utility_training)
+        cumulated_profits_list_training_per_epcoh_list.append(yearly_balance_training_avg)
+
         epoch_numbers_history_training_for_profits.append(e+1)
 
         loss_per_epoch = sum(train_loss_history) / len(train_loss_history)
@@ -285,10 +272,7 @@ def main(input_filepath, output_filepath):
         # epoch_numbers_history_training_loss.extend(epochs_list)
         epoch_numbers_history_training_loss.append(e+1)
 
-        # printing portfolio state
-        df_portfolio_state = pd.DataFrame(agent.portfolio_state, columns = cols_stocks)
-        df_portfolio_state.insert(0, 'TIC', agent.portfolio_state_rows)
-        print(f'Training: Portfolio state for epoch {e+1} is \n: {df_portfolio_state}')
+
 
         # Save explainability DataFrame for the last epoch
         if e == (agent.num_epochs-1):
@@ -297,178 +281,133 @@ def main(input_filepath, output_filepath):
             agent.explainability_df.to_csv(
                 f'./reports/results_DQN/{reward_type}/{data_type}/training_last_epoch/training_explainability_{dataset_name}_{date_string}_{selected_adjustments}.csv', index=False)
 
+
         # VALIDATION PHASE ########################################################################
-        agent.reset()
-        agent.Q_network.eval()  # Set the model to evaluation mode
         agent.epsilon = 0.0 # no exploration
-        unique_dates_validation = validation_data['date'].unique()
-        max_profit = 0.0
-        l_validation = len(unique_dates_validation)
+
         # final_penalty = 1.0
-        yearly_profit_validation = []
-        years_list_validation = []
+        yearly_balance_validation = []
+        validation_data = validation_data.copy()
+        yearly_balance_validation_last_epoch = []
+        years_list_validation_last_epoch = []
 
-        for t in range(l_validation):
+        for year, year_episode_dates in dates_list_by_year_val.items():
+            print(f'Epoch {e+1}, year {year}')
+            agent.soft_reset()
+            agent.reset_portfolio()
 
-            ####
-            data_window = validation_data.loc[(validation_data['date'] == unique_dates_validation[t])]
-
-            # replace NaN values with 0.0
-            data_window = data_window.fillna(0)
-            dates = data_window['date'].tolist()
-
-            state = getState(data_window, t, agent)
-
-            # take action a, observe reward and next_state
+            data_window = validation_data.loc[(validation_data['date'] == year_episode_dates[0])]
+            initial_state = getState(data_window, 0, agent)
             closing_prices = data_window['close'].tolist()
 
-            action_index = agent.act_deterministic(state, closing_prices)
+            l_validation = len(year_episode_dates)
+            max_profit = 0.0
+            loss_per_50_timesteps = []
+            yearly_utility_list_validation = []
 
-            # Find the indeces (stock_i, action_index_for_stock_i) where action_index  is present in action_index_arr_mask
+            cumulated_rewards_list_validation = [0.0]
+            cumulated_profits_list_validation = [INITIAL_AMOUNT]
 
-            indices = np.where(action_index_arr_mask == action_index)
-            stock_i, action_index_for_stock_i = map(int, indices)
+            for t in range(l_validation):
 
-            agent.execute_action(action_index_for_stock_i, closing_prices, stock_i, h, e, dates)
+                data_window = validation_data.loc[(validation_data['date'] == year_episode_dates[t])]
 
-            # Next state should append the t+1 data and portfolio_state. It also updates the position of agent portfolio based on agent position
-            if t<(l_validation-1):
-                next_data_window = validation_data.loc[(validation_data['date'] == unique_dates_validation[t + 1])]
-                next_state = getState(next_data_window, t+1, agent)
-                next_closing_prices = next_data_window['close'].tolist()
-                next_dates = next_data_window['date'].tolist()
-            else:
-                next_state = state
-                next_closing_prices = closing_prices
-                next_dates = dates
+                # replace NaN values with 0.0
+                data_window = data_window.fillna(0)
+                # get the date
+                dates = data_window['date'].tolist()
+                # get the year for assuming yearly profits
+                data_window = data_window.copy()
+                data_window['date'] = pd.to_datetime(data_window['date'])
+                years = data_window['date'].dt.strftime('%Y')
+                year = years.iloc[0]
 
-            reward = agent.update_portfolio(next_closing_prices, next_dates, stock_i)
-            agent.reward = reward
+                state = getState(data_window, t, agent)
 
-            # agent.reward = reward*final_penalty
+                # take action a, observe reward and next_state
+                closing_prices = data_window['close'].tolist()
 
-            state = torch.from_numpy(state).float().unsqueeze(0)
-            next_state = torch.from_numpy(next_state).float().unsqueeze(0)
+                # act epsilon-greedy
+                action_index = agent.act_deterministic(state, closing_prices)
 
-            with torch.no_grad():
-                target_reward = (reward + agent.gamma * (
-                    torch.max(agent.Q_network_val.forward(next_state), dim=1, keepdim=True)[0]).cpu().numpy() * (
-                                              1 - done))[0]
+                indices = np.where(action_index_arr_mask == action_index)
+                stock_i, action_index_for_stock_i = map(int, indices)
 
-            actions_indexes = torch.tensor([action_index], device=device)  # Create a tensor with a single index
+                # Execute action
+                amount_transaction = agent.execute_action(action_index_for_stock_i, closing_prices, stock_i, h, e, dates)
 
-            expected_rewards = agent.Q_network.forward(state)
-            expected_reward = expected_rewards[0, action_index]  # Directly index the expected_rewards tensor
+                # Next state should append the t+1 data and portfolio_state. It also updates the position of agent portfolio based on agent position
 
-            target_reward_scalar = torch.tensor(target_reward, device=device).float()
+                if t < (l_validation - 1):
+                    next_data_window = validation_data.loc[(validation_data['date'] == year_episode_dates[t + 1])]
+                    next_state = getState(next_data_window, t + 1, agent)
+                    next_closing_prices = next_data_window['close'].tolist()
+                    next_dates = next_data_window['date'].tolist()
+                else:
+                    next_state = state
+                    next_closing_prices = closing_prices
+                    next_dates = dates
 
-            # Convert expected_reward to a float (assuming expected_reward is a scalar)
-            expected_reward_float = expected_reward.item()
+                # Update portfolio and observe reward
+                reward = agent.update_portfolio(next_closing_prices, next_dates, stock_i, amount_transaction)
 
-            loss = agent.loss_fn(torch.tensor(expected_reward_float, device=device).unsqueeze(0), target_reward_scalar)
+                done = True if t == l_validation - 1 else False
 
+                agent.remember(state=state, actions=(action_index, action_index_for_stock_i, stock_i, h),
+                               closing_prices=closing_prices,
+                               reward=reward, next_state=next_state, done=done)
 
-            avg_loss = loss.mean().detach().cpu().numpy()
-            agent.batch_loss_history.append(avg_loss)
+                if len(agent.memory) >= agent.batch_size:
+                    if e == NUM_EPOCHS-1:
+                        agent.expReplay(e)
+                    else:
+                        agent.expReplay_validation(e)  # will also save the model on the last epoch
 
-            batch_loss_history = agent.batch_loss_history.copy()
-            val_loss_history.extend(batch_loss_history)
+                    batch_loss_history = agent.batch_loss_history.copy()
+                    validation_loss_history.extend(batch_loss_history)
 
-            if (t%50 == 0 or t==l_validation-1) and len(val_loss_history)>0:
-                loss_per_epoch_log = sum(val_loss_history) / len(val_loss_history)
-                print(f'Validation Loss for Epoch {e+1}: {loss_per_epoch_log:.4f}')
-                print(f'Epoch {e+1}, Balance: {agent.portfolio_state[0,0]:.4f}')
+                if (t % 50 == 0 or t == (l_validation - 1)) and len(validation_loss_history) > 0:
+                    loss_per_epoch_log = sum(validation_loss_history) / len(validation_loss_history)
+                    loss_per_50_timesteps.append(loss_per_epoch_log)
+                    print(f'Epoch {e + 1}, year {year}, Validation Loss: {loss_per_epoch_log:.4f}')
+                    print(f'Epoch {e + 1}, year {year}, Balance: {agent.portfolio_state[0, 0]:.4f}')
+                    print(f'Epoch {e + 1}, year {year}, Utility: {agent.utility:.4f}')
 
-            # extract the years
-            data_window = data_window.copy()
-            data_window['date'] = pd.to_datetime(data_window['date'])
-            data_window['date'] = pd.to_datetime(data_window['date'])
-            years = data_window['date'].dt.strftime('%Y')
-            year = years.iloc[0]
+                next_data_window = next_data_window.copy()
+                next_data_window['date'] = pd.to_datetime(next_data_window['date'])
+                next_years = next_data_window['date'].dt.strftime('%Y')
 
-            next_data_window = next_data_window.copy()
-            next_data_window['date'] = pd.to_datetime(next_data_window['date'])
-            next_data_window['date'] = pd.to_datetime(next_data_window['date'])
-            next_years = next_data_window['date'].dt.strftime('%Y')
-            next_year = next_years.iloc[0]
-
-            if year != next_year:
-                years_list_validation.append(year)
-
-                # keep track of yearly profit
-                yearly_profit_validation.append(agent.portfolio_state[0, 0])
-                agent.reset_portfolio()
-
-                # # penalize agent at the end of the year
-                # losses = [1, 0.95, 0.9, 0.85, 0.8, 0.75, 0.7, 0.6, 0.55, 0.5, 0.35, 0.3, 0.25, 0.1]
-                # for i in losses:
-                #     if agent.portfolio_state[0, 0] < INITIAL_AMOUNT * i:
-                #         distance_from_no_loss = 1 - i
-                #         final_penalty = -100.0 * (distance_from_no_loss ** 2)
-                #
-                # # compensate agent for profits at the end of the year
-                # profits = [1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0]
-                # for i in profits:
-                #     if agent.portfolio_state[0, 0] > INITIAL_AMOUNT * i:
-                #         bonus = 100.0 * (i**2)
-                #         final_penalty = bonus
-
-            # track profits only from the most recent year from last epoch:
-            if e == (agent.num_epochs - 1):
-                if year == final_validation_year:
+                # track profits for the final year during the last epoch
+                if year == final_validation_year and e == NUM_EPOCHS - 1:
                     cumulated_profit_per_epoch = agent.portfolio_state[0, 0]
                     cumulated_profits_list_validation.append(cumulated_profit_per_epoch)
-                    timestamps_list_validation.append(agent.timestamp_portfolio)
+                    cumulated_rewards_list_validation.append(agent.utility)
+                    timestamps_list_validation.append(agent.timestamp_portfolio.date().strftime('%Y-%m-%d'))
 
-            # # penalyze agent for losses
-            # losses = [1,0.95,0.9,0.85,0.8,0.75,0.7,0.6,0.55,0.5,0.35,0.3,0.25]
-            # for i in losses:
-            #     if agent.portfolio_state[0,0] < INITIAL_AMOUNT*i:
-            #         distance_from_no_loss = 1 - i
-            #         final_penalty = -10.0 * (distance_from_no_loss ** 2)
-            #
-            # # compensate agent for profits
-            # profits = [1.1,1.2,1.3,1.4,1.5,1.6,1.7,1.8,1.9,2.0]
-            # for i in profits:
-            #     if agent.portfolio_state[0,0] > INITIAL_AMOUNT*i:
-            #         # print("Giving bonus")
-            #         bonus = 10.0 * (i**2)
-            #         final_penalty = bonus
+                done = True if t == l_validation - 1 else False
 
-            done = True if t == l_validation - 1 else False
-            if done:
-                # keep track of yearly profit
-                years_list_validation.append(year)
-                yearly_profit_validation.append(agent.portfolio_state[0, 0])
+                if done and e == NUM_EPOCHS - 1:
+                    years_list_validation_last_epoch.append(year)
+                    yearly_balance_validation_last_epoch.append(agent.portfolio_state[0, 0])
 
-                # # penalyze agent for losses at the end of the run
-                # losses = [1, 0.95, 0.9, 0.85, 0.8, 0.75, 0.7, 0.6, 0.55, 0.5, 0.35, 0.3, 0.25]
-                # for i in losses:
-                #     if agent.portfolio_state[0, 0] < INITIAL_AMOUNT * i:
-                #         distance_from_no_loss = 1 - i
-                #         final_penalty = -100.0 * (distance_from_no_loss ** 2)
-                #
-                # # compensate agent for profits at the end of the run
-                # profits = [1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0]
-                # for i in profits:
-                #     if agent.portfolio_state[0, 0] > INITIAL_AMOUNT * i:
-                #         # print("Giving bonus")
-                #         bonus = 100.0 * (i ** 2)
-                #         final_penalty = bonus
+                if done:
+                    # keep track of yearly profit
+                    yearly_balance_validation.append(agent.portfolio_state[0, 0])
+                    yearly_utility_list_validation.append(agent.utility)
 
         ####
-        yearly_profit_validation_avg = sum(yearly_profit_validation) / len(yearly_profit_validation)
+        average_utility_validation = sum(yearly_utility_list_validation)/len(yearly_utility_list_validation)
+        yearly_balance_validation_avg = sum(yearly_balance_validation) / len(yearly_balance_validation)
 
-        cumulated_profits_list_validation_per_epcoh_list.append(yearly_profit_validation_avg)
+        cumulated_profits_list_validation_per_epcoh_list.append(yearly_balance_validation_avg)
+        utility_list_validation_per_epoch.append(average_utility_validation)
 
-        loss_per_epoch = (sum(val_loss_history) / len(val_loss_history))
+
+        loss_per_epoch = (sum(validation_loss_history) / len(validation_loss_history))
         loss_history_per_epoch_validation.append(loss_per_epoch)
         epoch_numbers_history_validation_loss.append(e+1)
         epoch_numbers_history_val_for_profits.append(e+1)
 
-        # loss_history_per_epoch_validation.append(val_loss_history)
-        # epochs_list = [e+1]*len(val_loss_history)
-        # epoch_numbers_history_validation_loss.extend(epochs_list)
 
         # printing portfolio state for validation at the end of the epoch run
         df_portfolio_state = pd.DataFrame(agent.portfolio_state, columns = cols_stocks)
@@ -482,14 +421,12 @@ def main(input_filepath, output_filepath):
             agent.explainability_df.to_csv(
                 f'./reports/results_DQN/{reward_type}/{data_type}/validation_last_epoch/validation_explainability_{dataset_name}_{date_string}_{selected_adjustments}.csv', index=False)
 
-
     current_date = datetime.datetime.now()
     date_string = current_date.strftime("%Y-%m-%d_%H_%M")
 
-    print(f'Debugging epoch_numbers_history_validation_loss is {epoch_numbers_history_validation_loss} \n loss_history_per_epoch_validation is {loss_history_per_epoch_validation}')
 
-    # PLOTTING: Loss and Cumulated profits #######################################################
-    fig, (ax1, ax2, ax3, ax4) = plt.subplots(1, 4, figsize=(20, 7))
+    # PLOTTING: Loss, Utility and Cumulated profits #######################################################
+    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(20, 7))
 
     # Plot for training loss
     ax1.plot(epoch_numbers_history_training_loss, loss_history_per_epoch_training, label='Training Loss')
@@ -502,24 +439,49 @@ def main(input_filepath, output_filepath):
     ax1.xaxis.set_major_locator(MaxNLocator(integer=True))
     ax1.legend()
 
-
-    ax2.plot(epoch_numbers_history_training_for_profits, cumulated_profits_list_training_per_epcoh_list, label='Training Yearly Profit')
-    ax2.plot(epoch_numbers_history_val_for_profits, cumulated_profits_list_validation_per_epcoh_list, label='Validation Yearly Profit',
+    ax2.plot(epoch_numbers_history_training_for_profits, utility_list_training_per_epoch, label='Training Avg. Yearly Utility')
+    ax2.plot(epoch_numbers_history_val_for_profits, utility_list_validation_per_epoch, label='Validation Avg. Yearly Utiliy',
              color='orange')
     ax2.set_xlabel('Epoch')
-    ax2.set_ylabel('Average Yearly Profit')
-    ax2.set_title('Average Yearly Profit per Epoch during \nTraining and Validation')
+    ax2.set_ylabel('Average Yearly Utility')
+    ax2.set_title('Average Yearly Utility per Epoch during \nTraining and Validation')
     ax2.grid(True)  # Add a grid
     ax2.xaxis.set_major_locator(MaxNLocator(integer=True))
     ax2.legend()
 
-    # Plot for cumulative profits during validation
-    ax3.plot(timestamps_list_training, cumulated_profits_list_training)
-    ax3.set_xlabel('Date')
-    ax3.set_ylabel('Cumulated Profits')
-    ax3.set_title(f'Cumulated Profits during Training - year {final_training_year}  \n(Last Epoch)')
-    ax3.grid(True)
+    ax3.plot(epoch_numbers_history_training_for_profits, cumulated_profits_list_training_per_epcoh_list, label='Training Avg. Yearly Balance')
+    ax3.plot(epoch_numbers_history_val_for_profits, cumulated_profits_list_validation_per_epcoh_list, label='Validation Avg. Yearly Balance',
+             color='orange')
+    ax3.set_xlabel('Epoch')
+    ax3.set_ylabel('Average Yearly Balance')
+    ax3.set_title('Average Yearly Balance per Epoch during \nTraining and Validation')
+    ax3.grid(True)  # Add a grid
+    ax3.xaxis.set_major_locator(MaxNLocator(integer=True))
     ax3.legend()
+
+    # Adjust the spacing at the top of the figure
+    fig.suptitle('DQN Average Loss, Average Utility and Average Balance')
+    fig.tight_layout(rect=[0, 0.03, 1, 0.98])
+    plt.savefig(f'./reports/figures/DQN_{reward_type}/{data_type}/DQN_trainingLoss_Utility_Profits_{dataset_name}_{date_string}_{selected_adjustments}.png')
+    plt.show()
+
+     # PLOTTING: Cumulated profits  and Utilities for the last training/validation year #######################################################
+    fig, (ax1, ax2, ax3, ax4) = plt.subplots(1, 4, figsize=(20, 7))
+
+    ax1.plot(timestamps_list_training, cumulated_profits_list_training)
+    ax1.set_xlabel('Date')
+    ax1.set_ylabel('Monetary Balance')
+    ax1.set_title(f'Monetary Balance during Training - year {final_training_year}  \n(Last Epoch)')
+    ax1.grid(True)
+    ax1.legend()
+
+
+    ax2.plot(timestamps_list_training, cumulated_rewards_list_training)
+    ax2.set_xlabel('Date')
+    ax2.set_ylabel('Cumulated Rewards (Utility)')
+    ax2.set_title(f'Cumulated Rewards (Utility) during Training - year {final_training_year}  \n(Last Epoch)')
+    ax2.grid(True)
+    ax2.legend()
 
     # Get the number of timestamps in the validation data
     num_timestamps = len(timestamps_list_training)
@@ -532,16 +494,25 @@ def main(input_filepath, output_filepath):
     x_tick_labels = [timestamps_list_training[i] for i in x_ticks]
 
     # Set the x-axis tick locations and labels
-    ax3.set_xticks(x_ticks)
-    ax3.set_xticklabels(x_tick_labels, rotation=45)
+    ax1.set_xticks(x_ticks)
+    ax1.set_xticklabels(x_tick_labels, rotation=45)
+    ax2.set_xticks(x_ticks)
+    ax2.set_xticklabels(x_tick_labels, rotation=45)
 
-    # Plot for cumulative profits during training
-    ax4.plot(timestamps_list_validation, cumulated_profits_list_validation)
+    ax3.plot(timestamps_list_validation, cumulated_profits_list_validation)
+    ax3.set_xlabel('Date')
+    ax3.set_ylabel('Monetary Balance')
+    ax3.set_title(f'Monetary Balance during Validation - year {final_validation_year} \n(Last Epoch)')
+    ax3.grid(True)
+    ax3.legend()
+
+    ax4.plot(timestamps_list_validation, cumulated_rewards_list_validation)
     ax4.set_xlabel('Date')
-    ax4.set_ylabel('Cumulated Profits')
-    ax4.set_title(f'Cumulated Profits during Validation - year {final_validation_year} \n(Last Epoch)')
+    ax4.set_ylabel('Cumulated Rewards (Utility)')
+    ax4.set_title(f'Cumulated Rewards (Utility) during Validation - year {final_validation_year} \n(Last Epoch)')
     ax4.grid(True)
     ax4.legend()
+
     # Get the number of timestamps in the validation data
     num_timestamps = len(timestamps_list_validation)
     # Calculate the step size for x-axis ticks
@@ -551,16 +522,18 @@ def main(input_filepath, output_filepath):
     x_tick_labels = [timestamps_list_validation[i] for i in x_ticks]
 
     # Set the x-axis tick locations and labels
+    ax3.set_xticks(x_ticks)
+    ax3.set_xticklabels(x_tick_labels, rotation=45)
     ax4.set_xticks(x_ticks)
     ax4.set_xticklabels(x_tick_labels, rotation=45)
 
 
     # Adjust layout and save the figure
     # Set the suptitle for the entire figure
-    fig.suptitle('DQN RL Agent Training and Validation with Total Balance Return as reward')
+    fig.suptitle('DQN Utility and Monetary Balance')
     # Adjust the spacing at the top of the figure
     fig.tight_layout(rect=[0, 0.03, 1, 0.98])
-    plt.savefig(f'./reports/figures/DQN_{reward_type}/{data_type}/DQN_training_loss_and_profits_for_{dataset_name}_{date_string}_{selected_adjustments}.png')
+    plt.savefig(f'./reports/figures/DQN_{reward_type}/{data_type}/DQN_Utility_Porifts_lastYear_{dataset_name}_{date_string}_{selected_adjustments}.png')
     plt.show()
 
     # save model
@@ -579,179 +552,174 @@ def main(input_filepath, output_filepath):
     with open( f'{output_filepath}/reward_return/config_file_for_{dataset_name}_{date_string}_{selected_adjustments}.txt', 'w') as file:
         file.write(config_text)
 
-    # TESTING ###############################################################################################################
+    # PLOTS FOR ENTRE VALIDATION SET WITH EXPERIENCE REPLAY
+    # no reseting portfolio at the end of the year
+    #
 
-    # Test Set No. 1
-    print('Testing Phase')
-    agent.reset()
-    agent.epsilon = 0.0 # no exploration
-    agent.memory = []
-    cumulated_profits_list_testing = [INITIAL_AMOUNT]
-    unique_dates_testing = test_data['date'].unique()
-    dates_testing = [unique_dates_testing[0]]
-    e = agent.num_epochs-1 #for explainability
-
-    l_testing = len(unique_dates_testing)
-    for t in range(l_testing):
-        ####
-        data_window = test_data.loc[(test_data['date'] == unique_dates_testing[t])]
-
-        # replace NaN values with 0.0
-        data_window = data_window.fillna(0)
-        dates = data_window['date'].tolist()
-        state = getState(data_window, t, agent)
-        closing_prices = data_window['close'].tolist()
-        # take action a, observe reward and next_state
-        action_index = agent.act_deterministic(state, closing_prices)
-
-        # Find the indeces (stock_i, action_index_for_stock_i) where action_index  is present in action_index_arr_mask
-        indices = np.where(action_index_arr_mask == action_index)
-        stock_i, action_index_for_stock_i = map(int, indices)
-
-        agent.execute_action(action_index_for_stock_i, closing_prices, stock_i, h, e, dates)
-
-        reward = agent.update_portfolio(next_closing_prices, next_dates, stock_i)
-        agent.reward = reward
-
-        updated_balance = agent.portfolio_state[0, 0]
-        cumulated_profits_list_testing.append(updated_balance)
-        dates_testing.append(dates[0])
-
-        if t < (l_testing - 1):
-            next_data_window = test_data.loc[(test_data['date'] == unique_dates_testing[t + 1])]
-            next_closing_prices = next_data_window['close'].tolist()
-            next_dates = next_data_window['date'].tolist()
-        else:
-            next_state = state
-            next_closing_prices = closing_prices
-            next_dates = dates
-
-        reward = agent.update_portfolio(next_closing_prices, next_dates, stock_i)
-
-        # if agent.portfolio_state[0, 0] >= INITIAL_AMOUNT * 1.5:
-        #     print("Have reached overshooting profits over 50%. Selling everything")
-        #     agent.sell_everything(closing_prices, stock_i, h, e, dates)
-        #     break
-
-        state = next
-
-        done = True if t == l_testing - 1 else False
-
-    # printing portfolio state for testing at the end
-    df_portfolio_state = pd.DataFrame(agent.portfolio_state, columns=cols_stocks)
-    df_portfolio_state.insert(0, 'TIC', agent.portfolio_state_rows)
-    print(f'Testing: Portfolio state is \n: {df_portfolio_state}')
-
-    # saving the explainability file
-    current_date = datetime.datetime.now()
-    date_string = current_date.strftime("%Y-%m-%d_%H_%M")
-    agent.explainability_df.to_csv(
-        f'./reports/results_DQN/{reward_type}/{data_type}/testing/testing_explainability_1_{dataset_name}_{date_string}_{selected_adjustments}.csv', index=False)
-
-
-    # Test Set No. 2 ################################################################
-
-    print('Testing Phase')
-    agent.reset()
-    agent.epsilon = 0.0  # no exploration
-    agent.memory = []
-    cumulated_profits_list_testing_2 = [INITIAL_AMOUNT]
-    unique_dates_testing_2 = test_data_2['date'].unique()
-    dates_testing_2 = [unique_dates_testing_2[0]]
-    e = agent.num_epochs - 1  # for explainability
-
-    l_testing_2 = len(unique_dates_testing_2)
-    for t in range(l_testing_2):
-        ####
-        data_window = test_data_2.loc[(test_data_2['date'] == unique_dates_testing_2[t])]
-
-        # replace NaN values with 0.0
-        data_window = data_window.fillna(0)
-        dates = data_window['date'].tolist()
-        state = getState(data_window, t, agent)
-        closing_prices = data_window['close'].tolist()
-        # take action a, observe reward and next_state
-        action_index = agent.act_deterministic(state, closing_prices)
-
-        # Find the indeces (stock_i, action_index_for_stock_i) where action_index  is present in action_index_arr_mask
-        indices = np.where(action_index_arr_mask == action_index)
-        stock_i, action_index_for_stock_i = map(int, indices)
-
-        agent.execute_action(action_index_for_stock_i, closing_prices, stock_i, h, e, dates)
-
-        reward = agent.update_portfolio(next_closing_prices, next_dates, stock_i)
-        agent.reward = reward
-
-        updated_balance = agent.portfolio_state[0, 0]
-        cumulated_profits_list_testing_2.append(updated_balance)
-        dates_testing_2.append(dates[0])
-
-        if t < (l_testing_2 - 1):
-            next_data_window = test_data_2.loc[(test_data_2['date'] == unique_dates_testing_2[t + 1])]
-            next_closing_prices = next_data_window['close'].tolist()
-            next_dates = next_data_window['date'].tolist()
-        else:
-            next_state = state
-            next_closing_prices = closing_prices
-            next_dates = dates
-
-        reward = agent.update_portfolio(next_closing_prices, next_dates, stock_i)
-
-        state = next
-
-        done = True if t == l_testing_2 - 1 else False
-
-    # printing portfolio state for testing at the end
-    df_portfolio_state = pd.DataFrame(agent.portfolio_state, columns=cols_stocks)
-    df_portfolio_state.insert(0, 'TIC', agent.portfolio_state_rows)
-    print(f'Testing: Portfolio state is \n: {df_portfolio_state}')
-
-    # saving the explainability file
-    current_date = datetime.datetime.now()
-    date_string = current_date.strftime("%Y-%m-%d_%H_%M")
-    agent.explainability_df.to_csv(
-        f'./reports/results_DQN/{reward_type}/{data_type}/testing/testing_explainability_2_{dataset_name}_{date_string}_{selected_adjustments}.csv', index=False)
-
-
-
-    # Plotting
-    fig, (ax1, ax2) = plt.subplots(nrows=1, ncols=2, figsize=(20, 6))
-    plt.margins(0.1)
-
-    # Plot for cumulated_profits_list_testing on ax1
-    ax1.plot(dates_testing, cumulated_profits_list_testing)
-    ax1.set_title(f'Cumulated Profits Over Testing - year {final_testing_year}')
-    ax1.set_xlabel("Dates")
-    ax1.set_ylabel("Cumulated Profits")
-    ax1.tick_params(axis='x', rotation=45)
-    ax1.grid(True)
-
-    # Reduce the number of dates shown on the x-axis for ax1
-    num_dates = 6
-    skip = max(1, len(dates_testing) // num_dates)
-    ax1.set_xticks(range(0, len(dates_testing), skip))
-    ax1.set_xticklabels(dates_testing[::skip])
-
-    # Plot for cumulated_profits_list_testing_2 on ax2
-    ax2.plot(dates_testing_2, cumulated_profits_list_testing_2)
-    ax2.set_title(f'Cumulated Profits during Testing - year {final_testing_year_2}')
-    ax2.set_xlabel("Dates")
-    ax2.set_ylabel("Cumulated Profits")
-    ax2.tick_params(axis='x', rotation=45)
-    ax2.grid(True)
-
-    # Reduce the number of dates shown on the x-axis for ax2
-    skip_2 = max(1, len(dates_testing_2) // num_dates)
-    ax2.set_xticks(range(0, len(dates_testing_2), skip_2))
-    ax2.set_xticklabels(dates_testing_2[::skip_2])
-
-    # Adjust the bottom margin to make the x-axis labels visible
-    plt.tight_layout()
-    plt.subplots_adjust(bottom=0.2)
-
-    # Save the figure in the specified folder path
-    plt.savefig(f'./reports/figures/DQN_{reward_type}/{data_type}/DQN_testing_profits_for_{dataset_name}_{date_string}_{selected_adjustments}.png')
-    plt.show()
+    # # TESTING ###############################################################################################################
+    #
+    # # Test Set No. 1
+    # print('Testing Phase')
+    # agent.reset()
+    # agent.epsilon = 0.0 # no exploration
+    # agent.memory = []
+    # cumulated_profits_list_testing = [INITIAL_AMOUNT]
+    # unique_dates_testing = test_data['date'].unique()
+    # dates_testing = [unique_dates_testing[0]]
+    # e = agent.num_epochs-1 #for explainability
+    #
+    # l_testing = len(unique_dates_testing)
+    # for t in range(l_testing):
+    #     ####
+    #     data_window = test_data.loc[(test_data['date'] == unique_dates_testing[t])]
+    #
+    #     # replace NaN values with 0.0
+    #     data_window = data_window.fillna(0)
+    #     dates = data_window['date'].tolist()
+    #     state = getState(data_window, t, agent)
+    #     closing_prices = data_window['close'].tolist()
+    #     # take action a, observe reward and next_state
+    #     action_index = agent.act_deterministic(state, closing_prices)
+    #
+    #     # Find the indeces (stock_i, action_index_for_stock_i) where action_index  is present in action_index_arr_mask
+    #     indices = np.where(action_index_arr_mask == action_index)
+    #     stock_i, action_index_for_stock_i = map(int, indices)
+    #
+    #     amount_transaction = agent.execute_action(action_index_for_stock_i, closing_prices, stock_i, h, e, dates)
+    #
+    #     reward = agent.update_portfolio(next_closing_prices, next_dates, stock_i, amount_transaction)
+    #     agent.reward = reward
+    #
+    #     updated_balance = agent.portfolio_state[0, 0]
+    #     cumulated_profits_list_testing.append(updated_balance)
+    #     dates_testing.append(dates[0])
+    #
+    #     if t < (l_testing - 1):
+    #         next_data_window = test_data.loc[(test_data['date'] == unique_dates_testing[t + 1])]
+    #         next_closing_prices = next_data_window['close'].tolist()
+    #         next_dates = next_data_window['date'].tolist()
+    #     else:
+    #         next_state = state
+    #         next_closing_prices = closing_prices
+    #         next_dates = dates
+    #
+    #     reward = agent.update_portfolio(next_closing_prices, next_dates, stock_i)
+    #
+    #     done = True if t == l_testing - 1 else False
+    #
+    # # printing portfolio state for testing at the end
+    # df_portfolio_state = pd.DataFrame(agent.portfolio_state, columns=cols_stocks)
+    # df_portfolio_state.insert(0, 'TIC', agent.portfolio_state_rows)
+    # print(f'Testing: Portfolio state is \n: {df_portfolio_state}')
+    #
+    # # saving the explainability file
+    # current_date = datetime.datetime.now()
+    # date_string = current_date.strftime("%Y-%m-%d_%H_%M")
+    # agent.explainability_df.to_csv(
+    #     f'./reports/results_DQN/{reward_type}/{data_type}/testing/testing_explainability_1_{dataset_name}_{date_string}_{selected_adjustments}.csv', index=False)
+    #
+    #
+    # # Test Set No. 2 ################################################################
+    #
+    # print('Testing Phase')
+    # agent.reset()
+    # agent.epsilon = 0.0  # no exploration
+    # agent.memory = []
+    # cumulated_profits_list_testing_2 = [INITIAL_AMOUNT]
+    # unique_dates_testing_2 = test_data_2['date'].unique()
+    # dates_testing_2 = [unique_dates_testing_2[0]]
+    # e = agent.num_epochs - 1  # for explainability
+    #
+    # l_testing_2 = len(unique_dates_testing_2)
+    # for t in range(l_testing_2):
+    #     ####
+    #     data_window = test_data_2.loc[(test_data_2['date'] == unique_dates_testing_2[t])]
+    #
+    #     # replace NaN values with 0.0
+    #     data_window = data_window.fillna(0)
+    #     dates = data_window['date'].tolist()
+    #     state = getState(data_window, t, agent)
+    #     closing_prices = data_window['close'].tolist()
+    #     # take action a, observe reward and next_state
+    #     action_index = agent.act_deterministic(state, closing_prices)
+    #
+    #     # Find the indeces (stock_i, action_index_for_stock_i) where action_index  is present in action_index_arr_mask
+    #     indices = np.where(action_index_arr_mask == action_index)
+    #     stock_i, action_index_for_stock_i = map(int, indices)
+    #
+    #     amount_transaction = agent.execute_action(action_index_for_stock_i, closing_prices, stock_i, h, e, dates)
+    #
+    #     reward = agent.update_portfolio(next_closing_prices, next_dates, stock_i, amount_transaction)
+    #     agent.reward = reward
+    #
+    #     updated_balance = agent.portfolio_state[0, 0]
+    #     cumulated_profits_list_testing_2.append(updated_balance)
+    #     dates_testing_2.append(dates[0])
+    #
+    #     if t < (l_testing_2 - 1):
+    #         next_data_window = test_data_2.loc[(test_data_2['date'] == unique_dates_testing_2[t + 1])]
+    #         next_closing_prices = next_data_window['close'].tolist()
+    #         next_dates = next_data_window['date'].tolist()
+    #     else:
+    #         next_state = state
+    #         next_closing_prices = closing_prices
+    #         next_dates = dates
+    #
+    #     reward = agent.update_portfolio(next_closing_prices, next_dates, stock_i)
+    #
+    #     done = True if t == l_testing_2 - 1 else False
+    #
+    # # printing portfolio state for testing at the end
+    # df_portfolio_state = pd.DataFrame(agent.portfolio_state, columns=cols_stocks)
+    # df_portfolio_state.insert(0, 'TIC', agent.portfolio_state_rows)
+    # print(f'Testing: Portfolio state is \n: {df_portfolio_state}')
+    #
+    # # saving the explainability file
+    # current_date = datetime.datetime.now()
+    # date_string = current_date.strftime("%Y-%m-%d_%H_%M")
+    # agent.explainability_df.to_csv(
+    #     f'./reports/results_DQN/{reward_type}/{data_type}/testing/testing_explainability_2_{dataset_name}_{date_string}_{selected_adjustments}.csv', index=False)
+    #
+    #
+    #
+    # # Plotting
+    # fig, (ax1, ax2) = plt.subplots(nrows=1, ncols=2, figsize=(20, 6))
+    # plt.margins(0.1)
+    #
+    # # Plot for cumulated_profits_list_testing on ax1
+    # ax1.plot(dates_testing, cumulated_profits_list_testing)
+    # ax1.set_title(f'Monetary Balance Over Testing - year {final_testing_year}')
+    # ax1.set_xlabel("Dates")
+    # ax1.set_ylabel("Monetary Balance")
+    # ax1.tick_params(axis='x', rotation=45)
+    # ax1.grid(True)
+    #
+    # # Reduce the number of dates shown on the x-axis for ax1
+    # num_dates = 6
+    # skip = max(1, len(dates_testing) // num_dates)
+    # ax1.set_xticks(range(0, len(dates_testing), skip))
+    # ax1.set_xticklabels(dates_testing[::skip])
+    #
+    # # Plot for cumulated_profits_list_testing_2 on ax2
+    # ax2.plot(dates_testing_2, cumulated_profits_list_testing_2)
+    # ax2.set_title(f'Monetary Balance during Testing - year {final_testing_year_2}')
+    # ax2.set_xlabel("Dates")
+    # ax2.set_ylabel("Monetary Balance")
+    # ax2.tick_params(axis='x', rotation=45)
+    # ax2.grid(True)
+    #
+    # # Reduce the number of dates shown on the x-axis for ax2
+    # skip_2 = max(1, len(dates_testing_2) // num_dates)
+    # ax2.set_xticks(range(0, len(dates_testing_2), skip_2))
+    # ax2.set_xticklabels(dates_testing_2[::skip_2])
+    #
+    # # Adjust the bottom margin to make the x-axis labels visible
+    # plt.tight_layout()
+    # plt.subplots_adjust(bottom=0.2)
+    #
+    # # Save the figure in the specified folder path
+    # plt.savefig(f'./reports/figures/DQN_{reward_type}/{data_type}/DQN_testing_profits_for_{dataset_name}_{date_string}_{selected_adjustments}.png')
+    # plt.show()
 
     # Saving results_FinRL files
 
@@ -766,50 +734,47 @@ def main(input_filepath, output_filepath):
     loss_per_epoch_df.to_csv(
         f'./reports/tables/results_DQN/{reward_type}/{data_type}/loss_per_epoch_{date_string}_{selected_adjustments}.csv', index=False)
 
+
     # Average yearly profit per epoch
-    avg_yearly_profit_per_epoch = pd.DataFrame(
-        {'epoch_no_training': epoch_numbers_history_training_for_profits,
-         'avg_yearly_profit_training': cumulated_profits_list_training_per_epcoh_list,
-         'epoch_no_validation': epoch_numbers_history_val_for_profits,
-         'avg_yearly_profit_validation': cumulated_profits_list_validation_per_epcoh_list
+    avg_yearly_balance_per_epoch = pd.DataFrame(
+        {'epoch_no': epoch_numbers_history_training_for_profits,
+         'avg_yearly_balance_training': cumulated_profits_list_training_per_epcoh_list,
+         'avg_yearly_proft_training': [balance / INITIAL_AMOUNT for balance in cumulated_profits_list_training_per_epcoh_list],
+         'avg_yearly_balance_validation': cumulated_profits_list_validation_per_epcoh_list,
+         'avg_yearly_proft_validation': [balance / INITIAL_AMOUNT for balance in
+                                       cumulated_profits_list_validation_per_epcoh_list]
          })
 
-    avg_yearly_profit_per_epoch.to_csv(
-        f'./reports/tables/results_DQN/{reward_type}/{data_type}/avg_yearly_profit_per_epoch_{dataset_name}_{date_string}_{selected_adjustments}.csv', index=False)
+    avg_yearly_balance_per_epoch.to_csv(
+        f'./reports/tables/results_DQN/{reward_type}/{data_type}/avg_yearly_balance_per_epoch_{dataset_name}_{date_string}_{selected_adjustments}.csv', index=False)
+
+    print(f'DQN Model: Overall Average yearly profit \n{avg_yearly_balance_per_epoch}')
 
     # Profit per year - last epoch
     profit_per_year_last_epoch_training = pd.DataFrame(
         {'year_training': years_list_training,
-         'profit_per_year_training': yearly_profit_training
+         'balance_per_year_training': yearly_balance_training_last_epoch,
+         'profit_per_year_training': [balance / INITIAL_AMOUNT for balance in yearly_balance_training_last_epoch]
          })
+
 
     profit_per_year_last_epoch_validation = pd.DataFrame(
         {
-         'year_validation': years_list_validation,
-         'profit_per_year_training': yearly_profit_validation
+         'year_validation': years_list_validation_last_epoch,
+         'balance_per_year_validation': yearly_balance_validation_last_epoch,
+         'profit_per_year_validation': [balance / INITIAL_AMOUNT for balance in yearly_balance_validation_last_epoch]
          })
 
     profit_per_year_last_epoch_training.to_csv(
         f'./reports/tables/results_DQN/{reward_type}/{data_type}/profit_per_year_last_epoch_training_{dataset_name}_{date_string}_{selected_adjustments}.csv', index=False)
 
+    print(f'DQN Model: Profit per Year for Last Epoch - Training \n{profit_per_year_last_epoch_training}')
+
+
     profit_per_year_last_epoch_validation.to_csv(
         f'./reports/tables/results_DQN/{reward_type}/{data_type}/profit_per_year_last_epoch_validation_{dataset_name}_{date_string}_{selected_adjustments}.csv', index=False)
 
-    # Average profit for training (last epoch), validation (last_epoch) and testing
-    avg_profit_training = sum(yearly_profit_training)/len(yearly_profit_training)
-    avg_profit_validation = sum(yearly_profit_validation)/len(yearly_profit_validation)
-    avg_profit_testing = cumulated_profits_list_testing[-1]
-
-    avg_yearly_profit = [avg_profit_training, avg_profit_validation, avg_profit_testing]
-    dataset_types = ['training_last_epoch','validation_last_epoch','testing_2022']
-
-    avg_yearly_profit_df = pd.DataFrame(
-        {'dataset': dataset_types,
-         'avg_yearly_profit': avg_yearly_profit
-         })
-
-    avg_yearly_profit_df.to_csv(
-        f'./reports/tables/results_DQN/{reward_type}/{data_type}/avg_yearly_profit_{dataset_name}_{date_string}_{selected_adjustments}.csv', index=False)
+    print(f'DQN Model: Profit per Year for Last Epoch - Validation \n{profit_per_year_last_epoch_validation}')
 
 
 if __name__ == '__main__':

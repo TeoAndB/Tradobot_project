@@ -34,7 +34,10 @@ def main(input_filepath, output_filepath):
     # data_set = "validation_last_epoch"
     # data_set = "testing"
 
-    explainability_data = "training_explainability_dataset1_1Day_w14Lags_HA-WBA-INCY_2023-08-21_22_56_w_memory_reset.csv"
+    model_specifications = 'CQL_Model'
+    model_specifications_title = 'CQL Model'
+
+    explainability_data = "training_explainability_dataset1_1Day_w14Lags_HA-WBA-INCY_2023-08-22_16_00_with_CQL.csv"
     df = pd.read_csv(f'{input_filepath}/{reward_type}/{data_type}/{data_set}/{explainability_data}')
 
     dataset_name = "HA-WBA-INCY"
@@ -103,7 +106,7 @@ def main(input_filepath, output_filepath):
     # Set labels and title
     ax.set_xlabel("Date")
     ax.set_ylabel("Price per share in $")
-    ax.set_title(f'Agent trading decisions for {data_set} period according to the \nclosing price evolution of {dataset_name} stocks\n')
+    ax.set_title(f'Agent trading decisions for {data_set} period according to the \nclosing price evolution of {dataset_name} stocks\n - {model_specifications_title} -')
 
     legend_elements = []
     for tic in tics:
@@ -123,7 +126,7 @@ def main(input_filepath, output_filepath):
     ax.set_facecolor('#e0e0e0')  # This sets a light gray background color
 
     plt.tight_layout()
-    plt.savefig(f'./reports/explainability_figures/{reward_type}/{data_type}/{data_set}/explainability_plots_for_{dataset_name}.png')
+    plt.savefig(f'./reports/explainability_figures/{reward_type}/{data_type}/{data_set}/explainability_plots_for_{dataset_name}_{model_specifications}.png')
 
     plt.show()
 
