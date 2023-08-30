@@ -54,6 +54,9 @@ data_alpaca: requirements
 train_DQN_return: requirements
 	$(PYTHON_INTERPRETER) src/models/train_DQNmodel_return.py data/processed models
 
+validate_DQN_return: requirements
+	$(PYTHON_INTERPRETER) src/models/validate_DQN_model_expReplay.py data/processed models
+
 train_DQN_sharpe: requirements
 	$(PYTHON_INTERPRETER) src/models/train_DQNmodel_sharpe.py data/processed models
 

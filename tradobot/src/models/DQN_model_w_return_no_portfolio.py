@@ -62,13 +62,17 @@ def getState(data_window, t, agent):
 
         portfolio_arr = np.array(agent.portfolio_state.copy()).T
 
-        state = np.column_stack((data_window_arr, portfolio_arr, close_price_columns_arr))
+        state = np.column_stack((data_window_arr, close_price_columns_arr))
+
+        # state = np.column_stack((data_window_arr, portfolio_arr, close_price_columns_arr))
 
     else:  # we update options based on last closing prices
 
         portfolio_arr = np.array(agent.portfolio_state.copy()).T
 
-        state = np.column_stack((data_window_arr, portfolio_arr, close_price_columns_arr)).astype(np.float)
+        state = np.column_stack((data_window_arr, close_price_columns_arr)).astype(np.float)
+
+        # state = np.column_stack((data_window_arr, portfolio_arr, close_price_columns_arr)).astype(np.float)
 
     return state
 
@@ -250,8 +254,8 @@ class Agent(Portfolio):
         self.batch_loss_history = []
         self.epoch_numbers = []
         self.num_features_from_data = num_features
-        self.num_features_total = self.num_features_from_data + self.portfolio_state.shape[0]
-        # self.num_features_total = self.num_features_from_data
+        # self.num_features_total = self.num_features_from_data + self.portfolio_state.shape[0]
+        self.num_features_total = self.num_features_from_data
 
         self.num_epochs = num_epochs
 
