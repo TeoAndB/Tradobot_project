@@ -139,90 +139,50 @@ class Portfolio:
         self.portfolio_state = np.copy(self.initial_portfolio_state)
 
 
+
 class DQNNetwork(nn.Module):
     def __init__(self, num_stocks, num_actions, num_features, batch_size):
         super().__init__()
 
-        # self.num_stocks = num_stocks
-        # self.num_features = num_features
-        # self.h_number = int(np.floor(2 / 3 * self.num_features))  # recommended size
-        # self.f_number = self.h_number * 2  # since input will be double
-        # self.num_actions = num_actions
-        # self.num_actions_all = num_actions * num_stocks
-        self.hidden_lstm = 32
         self.num_stocks = num_stocks
         self.num_features = num_features
-        self.h_number = int(np.floor(2 / 3 * (self.num_features - 14)))  # recommended size
-        self.f_number = (self.h_number + self.hidden_lstm) * 2  # since input will be double
         self.num_actions = num_actions
         self.num_actions_all = num_actions * num_stocks
 
+        # Calculate flattened input size
+        flattened_size = self.num_stocks * (self.num_features - TIME_LAG)
+
+        # Calculate intermediate size (you can adjust this value as needed)
+        hidden_size = int(flattened_size / 2)  # Just a heuristic; feel free to change
+
         # define layers
-        self.linear_h = nn.Linear(self.num_features - 14, self.h_number)
-        self.linear_f = nn.Linear(self.f_number, self.num_actions)
-
-        self.lstm = nn.LSTM(TIME_LAG, self.hidden_lstm, batch_first=True)
-
-        # self.linear_h = nn.Linear(self.num_stocks * self.num_features, self.h_number)
-        # self.linear_f = nn.Linear(self.h_number, self.num_actions_all)
-        self.dropout = nn.Dropout(p=0.2)
+        self.linear_h = nn.Linear(flattened_size, hidden_size)
+        self.linear_f = nn.Linear(hidden_size, self.num_actions_all)  # output dimension matches self.num_actions_all
         self.activation = torch.nn.ReLU()
         self.activation_2 = torch.nn.Softmax(dim=1)
-        # self.activation_2 = torch.nn.ReLU()
 
         # Initializing the weights with the Xavier initialization method
         torch.nn.init.xavier_uniform_(self.linear_h.weight)
         torch.nn.init.xavier_uniform_(self.linear_f.weight)
 
     def forward(self, x):
-        h_outputs = []
-        f_outputs = []
-
-        # x is batch_size x num_stocks x num_features
+        # Ensure the input is a torch Tensor and on the correct device
         if isinstance(x, np.ndarray):
             x = torch.from_numpy(x).to(device)
         else:
             x = x.to(device)
 
-        for i in range(self.num_stocks):
-            x_i_lin = x[:, i, 0:-(TIME_LAG + 1)].float()
-            x_i_lstm = x[:, i, -(TIME_LAG + 1):-1].float()
+        # Flatten the input tensor
+        x = x[:, :, :-(TIME_LAG)].float().reshape(x.shape[0],
+                                                  -1)  # Resultant shape: [batch_size, num_stocks*(num_features-TIME_LAG)]
 
-            # Process x_i_lin with the linear layer
-            x_i_lin = self.linear_h(x_i_lin)
-            x_i_lin = self.dropout(x_i_lin)
-            x_i_lin = self.activation(x_i_lin)
+        # Pass through the first network
+        x = self.linear_h(x)
+        x = self.activation(x)
 
-            # Process x_i_lstm with the LSTM layer
-            x_i_lstm = x_i_lstm.unsqueeze(0)  # Add a batch dimension for LSTM input
-            lstm_out, _ = self.lstm(x_i_lstm)
-            lstm_out = self.activation(lstm_out)
-            x_i_lstm = lstm_out.squeeze(0)  # Remove the batch dimension from LSTM output
-
-            # Concatenate outputs from linear and LSTM networks
-            x_i_output = torch.cat((x_i_lin, x_i_lstm), dim=1)
-            h_outputs.append(x_i_output)
-        for i in range(self.num_stocks):
-            h_outputs_stock_i = torch.unsqueeze(h_outputs[i], dim=1)
-            h_outputs_temp = h_outputs.copy()
-            h_outputs_temp.pop(i)
-            h_outputs_without_i_tensor = torch.stack(h_outputs_temp, dim=1)
-            # create a vector with h_outputs for stock i and mean of stocks i+1,i+2...in
-            f_input_i = [h_outputs_stock_i, torch.mean(h_outputs_without_i_tensor, 1, True)]
-            f_input_i = torch.stack(f_input_i, dim=1)
-            f_input_i = torch.squeeze(f_input_i, dim=2)
-            # print(f_input_i)
-            # f_input_i = torch.flatten(f_input_i)
-            # pass through network of size f_number
-            f_input_i = f_input_i.reshape((-1, self.f_number))
-            f_input_i = self.linear_f(f_input_i)
-            f_input_i = self.dropout(f_input_i)
-            f_input_i = self.activation_2(f_input_i)
-            f_outputs.append(f_input_i)
-
-        x = torch.stack(f_outputs, dim=1)
-
-        x = x.reshape((-1, self.num_stocks * self.num_actions))
+        # Pass through the second network
+        x = self.linear_f(x)
+        x = self.activation_2(x)
 
         return x
 
@@ -253,7 +213,7 @@ class Agent(Portfolio):
         self.batch_size = batch_size
         self.batch_loss_history = []
         self.epoch_numbers = []
-        self.num_features_from_data = num_features
+        self.num_features_from_data = num_features+1
         # self.num_features_total = self.num_features_from_data + self.portfolio_state.shape[0]
         self.num_features_total = self.num_features_from_data
 
@@ -271,7 +231,7 @@ class Agent(Portfolio):
             self.Q_network.load_state_dict(torch.load(model_path))
             self.Q_network_val.load_state_dict(torch.load(model_target_path))
 
-        self.optimizer = torch.optim.Adam(self.Q_network.parameters(), lr=self.learning_rate, weight_decay=WEIGHT_DECAY)
+        self.optimizer = torch.optim.Adam(self.Q_network.parameters(), lr=self.learning_rate)
 
         self.loss_fn = torch.nn.MSELoss()
 

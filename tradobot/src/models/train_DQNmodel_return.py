@@ -6,7 +6,7 @@ from pathlib import Path
 from dotenv import find_dotenv, load_dotenv
 
 from src.config_model_DQN_return import *
-from src.models.DQN_model_w_return_no_portfolio import Agent, Portfolio, getState
+from src.models.DQN_model_w_return_simple_1Layer import Agent, Portfolio, getState
 #from functions import *
 
 import logging
@@ -33,7 +33,7 @@ def main(input_filepath, output_filepath):
     data = pd.read_csv(f'{input_filepath}/{DATASET}', index_col=0)
     #data = normalize_dataframe(data.copy())
 
-    selected_adjustments = 'regular_DQN_20Epochs_TESTLSF'
+    selected_adjustments = 'simple_DQN_1Layer_30Epochs'
     #data_type = "minute_frequency_data"
     data_type = "daily_frequency_data"
     reward_type = "reward_portfolio_return"
@@ -278,11 +278,11 @@ def main(input_filepath, output_filepath):
 
 
         # Save explainability DataFrame for the last epoch
-        # if e == (agent.num_epochs-1):
-        #     current_date = datetime.datetime.now()
-        #     date_string = current_date.strftime("%Y-%m-%d_%H_%M")
-        #     agent.explainability_df.to_csv(
-        #         f'./reports/results_DQN/{reward_type}/{data_type}/training_last_epoch/training_explainability_{dataset_name}_{date_string}_{selected_adjustments}.csv', index=False)
+        if e == (agent.num_epochs-1):
+            current_date = datetime.datetime.now()
+            date_string = current_date.strftime("%Y-%m-%d_%H_%M")
+            agent.explainability_df.to_csv(
+                f'./reports/results_DQN/{reward_type}/{data_type}/training_last_epoch/training_explainability_{dataset_name}_{date_string}_{selected_adjustments}.csv', index=False)
 
 
         # VALIDATION PHASE ########################################################################
@@ -414,11 +414,11 @@ def main(input_filepath, output_filepath):
         print(f'Validation: Portfolio state for epoch {e+1} is \n: {df_portfolio_state}')
 
         # Save explainability DataFrame for the last epoch
-        # if e == (agent.num_epochs-1):
-        #     current_date = datetime.datetime.now()
-        #     date_string = current_date.strftime("%Y-%m-%d_%H_%M")
-        #     agent.explainability_df.to_csv(
-        #         f'./reports/results_DQN/{reward_type}/{data_type}/validation_last_epoch/validation_explainability_{dataset_name}_{date_string}_{selected_adjustments}.csv', index=False)
+        if e == (agent.num_epochs-1):
+            current_date = datetime.datetime.now()
+            date_string = current_date.strftime("%Y-%m-%d_%H_%M")
+            agent.explainability_df.to_csv(
+                f'./reports/results_DQN/{reward_type}/{data_type}/validation_last_epoch/validation_explainability_{dataset_name}_{date_string}_{selected_adjustments}.csv', index=False)
 
     current_date = datetime.datetime.now()
     date_string = current_date.strftime("%Y-%m-%d_%H_%M")
@@ -461,8 +461,8 @@ def main(input_filepath, output_filepath):
     # Adjust the spacing at the top of the figure
     fig.suptitle('DQN Average Loss, Average Utility and Average Balance')
     fig.tight_layout(rect=[0, 0.03, 1, 0.98])
-    # plt.savefig(f'{output_filepath}/figures/DQN_{reward_type}/{data_type}/DQN_trainingLoss_Utility_Profits_{dataset_name}_{date_string}_{selected_adjustments}.png')
-    plt.show()
+    plt.savefig(f'./reports/figures/DQN_{reward_type}/{data_type}/DQN_trainingLoss_Utility_Profits_{dataset_name}_{date_string}_{selected_adjustments}.png')
+    # plt.show()
 
      # PLOTTING: Cumulated profits  and Utilities for the last training/validation year #######################################################
     fig, (ax1, ax2, ax3, ax4) = plt.subplots(1, 4, figsize=(20, 7))
@@ -532,12 +532,12 @@ def main(input_filepath, output_filepath):
     fig.suptitle('DQN Utility and Monetary Balance')
     # Adjust the spacing at the top of the figure
     fig.tight_layout(rect=[0, 0.03, 1, 0.98])
-    # plt.savefig(f'./reports/figures/DQN_{reward_type}/{data_type}/DQN_Utility_Porifts_lastYear_{dataset_name}_{date_string}_{selected_adjustments}.png')
-    plt.show()
+    plt.savefig(f'./reports/figures/DQN_{reward_type}/{data_type}/DQN_Utility_Porifts_lastYear_{dataset_name}_{date_string}_{selected_adjustments}.png')
+    # plt.show()
 
     # # save model
-    # torch.save(agent.Q_network.state_dict(), f'{output_filepath}/reward_return/trained_DQN-model_for_{dataset_name}_{date_string}_{selected_adjustments}.pth')
-    # torch.save(agent.Q_network_val.state_dict(), f'{output_filepath}/reward_return/trained_target-DQN-model_for_{dataset_name}_{date_string}_{selected_adjustments}.pth')
+    torch.save(agent.Q_network.state_dict(), f'{output_filepath}/reward_return/trained_DQN-model_for_{dataset_name}_{date_string}_{selected_adjustments}.pth')
+    torch.save(agent.Q_network_val.state_dict(), f'{output_filepath}/reward_return/trained_target-DQN-model_for_{dataset_name}_{date_string}_{selected_adjustments}.pth')
 
     # sva econfiguration file
     with open('./src/config_model_DQN_return.py', 'r') as file:
@@ -561,8 +561,8 @@ def main(input_filepath, output_filepath):
          'loss_validation': loss_history_per_epoch_validation
          })
 
-    # loss_per_epoch_df.to_csv(
-    #     f'./reports/tables/results_DQN/{reward_type}/{data_type}/loss_per_epoch_{date_string}_{selected_adjustments}.csv', index=False)
+    loss_per_epoch_df.to_csv(
+        f'./reports/tables/results_DQN/{reward_type}/{data_type}/loss_per_epoch_{date_string}_{selected_adjustments}.csv', index=False)
 
 
     # Average yearly profit per epoch
@@ -575,8 +575,8 @@ def main(input_filepath, output_filepath):
                                        cumulated_profits_list_validation_per_epcoh_list]
          })
 
-    # avg_yearly_balance_per_epoch.to_csv(
-    #     f'./reports/tables/results_DQN/{reward_type}/{data_type}/avg_yearly_balance_per_epoch_{dataset_name}_{date_string}_{selected_adjustments}.csv', index=False)
+    avg_yearly_balance_per_epoch.to_csv(
+        f'./reports/tables/results_DQN/{reward_type}/{data_type}/avg_yearly_balance_per_epoch_{dataset_name}_{date_string}_{selected_adjustments}.csv', index=False)
 
     print(f'DQN Model: Overall Average yearly profit \n{avg_yearly_balance_per_epoch}')
 
@@ -595,14 +595,14 @@ def main(input_filepath, output_filepath):
          'profit_per_year_validation': [balance / INITIAL_AMOUNT for balance in yearly_balance_validation_last_epoch]
          })
 
-    # profit_per_year_last_epoch_training.to_csv(
-    #     f'./reports/tables/results_DQN/{reward_type}/{data_type}/profit_per_year_last_epoch_training_{dataset_name}_{date_string}_{selected_adjustments}.csv', index=False)
+    profit_per_year_last_epoch_training.to_csv(
+        f'./reports/tables/results_DQN/{reward_type}/{data_type}/profit_per_year_last_epoch_training_{dataset_name}_{date_string}_{selected_adjustments}.csv', index=False)
 
     print(f'DQN Model: Profit per Year for Last Epoch - Training \n{profit_per_year_last_epoch_training}')
 
 
-    # profit_per_year_last_epoch_validation.to_csv(
-    #     f'./reports/tables/results_DQN/{reward_type}/{data_type}/profit_per_year_last_epoch_validation_{dataset_name}_{date_string}_{selected_adjustments}.csv', index=False)
+    profit_per_year_last_epoch_validation.to_csv(
+        f'./reports/tables/results_DQN/{reward_type}/{data_type}/profit_per_year_last_epoch_validation_{dataset_name}_{date_string}_{selected_adjustments}.csv', index=False)
 
     print(f'DQN Model: Profit per Year for Last Epoch - Validation \n{profit_per_year_last_epoch_validation}')
 
