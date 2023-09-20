@@ -35,8 +35,8 @@ def main(input_filepath, output_filepath):
     # data_set = "validation_last_epoch"
     # data_set = "testing"
 
-    models_compared = 'initialDQN_and_simpleDQN'
-    plot_title_models = 'DQNi and simple DQN'
+    models_compared = 'simpleDQN_and_simpleDQN_noLastLayerActivation'
+    plot_title_models = 'simple DQN and simple DQN without last-layer activation'
 
     # Baseline ############################################################################################################
     name_dataset = 'HA-WBA-INCY'
@@ -65,8 +65,8 @@ def main(input_filepath, output_filepath):
     # DQN Model 1 ############################################################################################
 
     name_dataset = 'HA-WBA-INCY'
-    run_ids = ['2023-08-31_20_33', '2023-08-31_21_19', '2023-08-31_22_20']
-    specifications = 'noLSTM_noPortfolio_noReg_DQN_30Epochs'
+    run_ids = ['2023-09-03_20_35', '2023-09-03_19_05', '2023-09-03_18_23']
+    specifications = 'simple_DQN_1Layer_30Epochs'
 
     profits_list_DQN_runs = []
     source_list_DQN_runs = []
@@ -96,11 +96,11 @@ def main(input_filepath, output_filepath):
         year_list_DQN = df_combined['year'].tolist()
         years_list_DQN_runs.append(year_list_DQN)
 
-    # DQN Model 1 ############################################################################################
+    # DQN Model 2 ############################################################################################
 
     name_dataset = 'HA-WBA-INCY'
-    run_ids = ['2023-09-03_18_23', '2023-09-03_19_05', '2023-09-03_20_35']
-    specifications = 'simple_DQN_1Layer_30Epochs'
+    run_ids = ['2023-09-13_21_49', '2023-09-14_15_59', '2023-09-18_21_19']
+    specifications = 'DQN_simple_nosoftmax_tanh_30Epochs'
 
     profits_list_DQN2_runs = []
     source_list_DQN2_runs = []
@@ -180,25 +180,25 @@ def main(input_filepath, output_filepath):
                         markeredgecolor='black')
         dots_baseline.append(dot)
 
-    # DQN with standard deviation
-    line_DQN, = plt.plot(year_list_baseline, avg_profits_DQN, '-g', label='Initial DQN: Avg of 3 Training and Validation Runs')
+    # Simple DQN with standard deviation
+    line_DQN, = plt.plot(year_list_baseline, avg_profits_DQN, '-b', label='Simple DQN: Avg of 3 Training and Validation Runs')
     dots_DQN = []
     for year, profit, color in zip(year_list_baseline, avg_profits_DQN, colors_baseline):
         dot, = plt.plot(year, profit, 'o', markersize=8, markerfacecolor=color, markeredgewidth=0.5,
-                        markeredgecolor='green')
+                        markeredgecolor='blue')
         dots_DQN.append(dot)
     plt.fill_between(year_list_baseline, avg_profits_DQN - std_profits_DQN, avg_profits_DQN + std_profits_DQN,
-                     color='green', alpha=0.2)
+                     color='blue', alpha=0.2)
 
     # DQN2 with standard deviation
-    line_DQN2, = plt.plot(year_list_baseline, avg_profits_DQN2, '-b', label='Simple DQN: Avg of 3 Training and Validation Runs')
+    line_DQN2, = plt.plot(year_list_baseline, avg_profits_DQN2, '-g', label='Simple DQN no Activation: Avg of 3 Training and Validation Runs')
     dots_DQN2 = []
     for year, profit, color in zip(year_list_baseline, avg_profits_DQN2, colors_baseline):
         dot, = plt.plot(year, profit, 'o', markersize=8, markerfacecolor=color, markeredgewidth=0.5,
-                        markeredgecolor='blue')
+                        markeredgecolor='green')
         dots_DQN2.append(dot)
     plt.fill_between(year_list_baseline, avg_profits_DQN2 - std_profits_DQN2, avg_profits_DQN2 + std_profits_DQN2,
-                     color='blue', alpha=0.2)
+                     color='green', alpha=0.2)
 
     # Custom legend handles for training and validation dots
     legend_train = plt.Line2D([0], [0], marker='o', color='w', label='Training', markersize=8, markerfacecolor='cyan',

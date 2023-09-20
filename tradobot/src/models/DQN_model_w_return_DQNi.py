@@ -169,13 +169,13 @@ class DQNNetwork(nn.Module):
         # self.linear_h = nn.Linear(self.num_stocks * self.num_features, self.h_number)
         # self.linear_f = nn.Linear(self.h_number, self.num_actions_all)
         # self.dropout = nn.Dropout(p=0.2)
-        self.activation = torch.nn.PReLU()
-        self.activation_2 = torch.nn.Softmax(dim=1)
+        self.activation = torch.nn.Tanh()
+        # self.activation_2 = torch.nn.Softmax(dim=1)
         # self.activation_2 = torch.nn.ReLU()
 
         # Initializing the weights with the Xavier initialization method
-        torch.nn.init.xavier_uniform_(self.linear_h.weight)
-        torch.nn.init.xavier_uniform_(self.linear_f.weight)
+        torch.nn.init.normal_(self.linear_h.weight, mean=0, std=0.01)
+        torch.nn.init.normal_(self.linear_h.weight, mean=0, std=0.01)
 
     def forward(self, x):
         h_outputs = []
@@ -227,7 +227,7 @@ class DQNNetwork(nn.Module):
             f_input_i = f_input_i.reshape((-1, self.f_number))
             f_input_i = self.linear_f(f_input_i)
             # f_input_i = self.dropout(f_input_i)
-            f_input_i = self.activation_2(f_input_i)
+            # f_input_i = self.activation_2(f_input_i)
             f_outputs.append(f_input_i)
 
         x = torch.stack(f_outputs, dim=1)

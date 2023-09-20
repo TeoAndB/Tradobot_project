@@ -26,17 +26,29 @@ shares_stock_idx = 7
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+def getMeanStdFromData(df, NUM_STOCKS):
+    scalar_columns = df.select_dtypes(exclude='object').columns
+
+    # Calculate mean every 3rd row for scalar columns
+    means = []
+    std_devs = []
+    for i in range(NUM_STOCKS):
+        means.append(df.iloc[i::3][scalar_columns].mean())
+        std_devs.append(df.iloc[i::3][scalar_columns].std())
+
+    mu_dataframe = pd.DataFrame(means)
+    std_dataframe = pd.DataFrame(std_devs)
+
+    return mu_dataframe, std_dataframe
 
 # device = torch.device('cpu')
 
-def getState(data_window, t, agent):
+def getState(data_window, t, agent, mu_df, std_df):
     data_window = data_window.fillna(0.0)
     # prev_closing_prices = list of prev_closing_prices
     # encode the date as a number signifying day interval length between curr date and past date
-    reference_date = datetime(2008, 9, 15)
-    data_window['date'] = pd.to_datetime(data_window['date'])
-    data_window['Date_Encoded'] = (data_window['date'] - reference_date).dt.days
-    data_window = data_window.drop(['date'], axis=1)
+
+    data_window = data_window.drop(['date','day'], axis=1)
 
     # one-hot-encode the 'TIC' aka stock name
     one_hot = pd.get_dummies(data_window['tic'])
@@ -56,6 +68,13 @@ def getState(data_window, t, agent):
     filtered_columns.append('close_lag_0')
     data_window_no_lags = data_window.loc[:, filtered_columns]
     data_window_no_lags.rename(columns={'close_lag_0': 'close'}, inplace=True)
+
+    # substract the mean and divide by standard deviation for scalar values
+    common_columns = list(set(data_window_no_lags.columns) & set(mu_df.columns))
+    for idx, row in data_window_no_lags.iterrows():
+        data_window_no_lags.loc[idx, common_columns] = (row[common_columns] - mu_df.iloc[idx % NUM_STOCKS][common_columns]) / \
+                                               std_df.iloc[idx % NUM_STOCKS][common_columns]
+
     data_window_arr = data_window_no_lags.to_numpy()
 
     if t == 0:
@@ -79,6 +98,7 @@ def getState(data_window, t, agent):
 
 class Portfolio:
     def __init__(self, num_stocks, balance, name_stocks, closing_prices=[]):
+
         self.timestamp_portfolio = 'None'
         self.name_stocks_list = name_stocks
         self.initial_total_balance = float(balance)
@@ -159,11 +179,10 @@ class DQNNetwork(nn.Module):
         self.linear_h = nn.Linear(flattened_size, hidden_size)
         self.linear_f = nn.Linear(hidden_size, self.num_actions_all)  # output dimension matches self.num_actions_all
         self.activation = torch.nn.ReLU()
-        self.activation_2 = torch.nn.Softmax(dim=1)
 
         # Initializing the weights with the Xavier initialization method
-        torch.nn.init.xavier_uniform_(self.linear_h.weight)
-        torch.nn.init.xavier_uniform_(self.linear_f.weight)
+        torch.nn.init.normal_(self.linear_h.weight, mean=0, std=0.01)
+        torch.nn.init.normal_(self.linear_h.weight, mean=0, std=0.01)
 
     def forward(self, x):
         # Ensure the input is a torch Tensor and on the correct device
@@ -178,11 +197,13 @@ class DQNNetwork(nn.Module):
 
         # Pass through the first network
         x = self.linear_h(x)
+
+
         x = self.activation(x)
 
         # Pass through the second network
         x = self.linear_f(x)
-        x = self.activation_2(x)
+        # x = self.activation_2(x)
 
         return x
 
@@ -213,7 +234,7 @@ class Agent(Portfolio):
         self.batch_size = batch_size
         self.batch_loss_history = []
         self.epoch_numbers = []
-        self.num_features_from_data = num_features+1
+        self.num_features_from_data = num_features
         # self.num_features_total = self.num_features_from_data + self.portfolio_state.shape[0]
         self.num_features_total = self.num_features_from_data
 
@@ -234,6 +255,9 @@ class Agent(Portfolio):
         self.optimizer = torch.optim.Adam(self.Q_network.parameters(), lr=self.learning_rate)
 
         self.loss_fn = torch.nn.MSELoss()
+        # self.torch.nn.HuberLoss()
+
+
 
     def remember(self, state, actions, closing_prices, reward, next_state, done):
         self.memory.append((state, actions, closing_prices, reward, next_state, done))
@@ -389,8 +413,8 @@ class Agent(Portfolio):
         expected_rewards = self.Q_network.forward(states).gather(1, action_indexes)
         target_rewards = torch.tensor(target_rewards, device=device).float().view(-1).unsqueeze(1)
 
-        # loss = self.loss_fn(expected_rewards, target_rewards)
-        loss = self.CQL_loss(expected_rewards, target_rewards, actions_indexes, states)
+        loss = self.loss_fn(expected_rewards, target_rewards)
+        # loss = self.CQL_loss(expected_rewards, target_rewards, actions_indexes, states)
         # self.optimizer.zero_grad()
         # loss.backward()
         # self.optimizer.step()

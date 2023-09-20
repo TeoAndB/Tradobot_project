@@ -164,7 +164,7 @@ class DQNNetwork(nn.Module):
 
         # self.linear_h = nn.Linear(self.num_stocks * self.num_features, self.h_number)
         # self.linear_f = nn.Linear(self.h_number, self.num_actions_all)
-        self.dropout = nn.Dropout(p=0.2)
+        # self.dropout = nn.Dropout(p=0.2)
         self.activation = torch.nn.PReLU()
         self.activation_2 = torch.nn.Softmax(dim=1)
         # self.activation_2 = torch.nn.ReLU()
@@ -196,7 +196,7 @@ class DQNNetwork(nn.Module):
 
             # Process x_i_lin with the linear layer
             x_i_lin = self.linear_h(x_i_lin)
-            x_i_lin = self.dropout(x_i_lin)
+            # x_i_lin = self.dropout(x_i_lin)
             x_i_lin = self.activation(x_i_lin)
 
             # # Process x_i_lstm with the LSTM layer
@@ -222,7 +222,7 @@ class DQNNetwork(nn.Module):
             # pass through network of size f_number
             f_input_i = f_input_i.reshape((-1, self.f_number))
             f_input_i = self.linear_f(f_input_i)
-            f_input_i = self.dropout(f_input_i)
+            # f_input_i = self.dropout(f_input_i)
             f_input_i = self.activation_2(f_input_i)
             f_outputs.append(f_input_i)
 
@@ -277,7 +277,7 @@ class Agent(Portfolio):
             self.Q_network.load_state_dict(torch.load(model_path))
             self.Q_network_val.load_state_dict(torch.load(model_target_path))
 
-        self.optimizer = torch.optim.Adam(self.Q_network.parameters(), lr=self.learning_rate, weight_decay=WEIGHT_DECAY)
+        self.optimizer = torch.optim.Adam(self.Q_network.parameters(), lr=self.learning_rate)
 
         self.loss_fn = torch.nn.MSELoss()
 
