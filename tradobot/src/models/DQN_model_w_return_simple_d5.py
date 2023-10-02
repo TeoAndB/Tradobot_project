@@ -11,9 +11,11 @@ import pandas as pd
 import random
 import logging
 from collections import Counter
+import gc
+import statistics
 
 
-from src.config_model_DQN_return import INITIAL_AMOUNT, NUM_ACTIONS, TIME_LAG, NUM_STOCKS, NUM_SAMPLING
+from src.config_model_DQN_return_d5 import INITIAL_AMOUNT, NUM_ACTIONS, TIME_LAG, NUM_STOCKS, NUM_SAMPLING, ALPHA_CQL
 
 total_balance_idx = 0
 position_stock_idx = 1
@@ -26,17 +28,29 @@ shares_stock_idx = 7
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+def getMeanStdFromData(df, NUM_STOCKS):
+    scalar_columns = df.select_dtypes(exclude='object').columns
+
+    # Calculate mean every 3rd row for scalar columns
+    means = []
+    std_devs = []
+    for i in range(NUM_STOCKS):
+        means.append(df.iloc[i::3][scalar_columns].mean())
+        std_devs.append(df.iloc[i::3][scalar_columns].std())
+
+    mu_dataframe = pd.DataFrame(means)
+    std_dataframe = pd.DataFrame(std_devs)
+
+    return mu_dataframe, std_dataframe
 
 # device = torch.device('cpu')
 
-def getState(data_window, t, agent):
+def getState(data_window, t, agent, mu_df, std_df):
     data_window = data_window.fillna(0.0)
     # prev_closing_prices = list of prev_closing_prices
     # encode the date as a number signifying day interval length between curr date and past date
-    reference_date = datetime(2008, 9, 15)
-    data_window['date'] = pd.to_datetime(data_window['date'])
-    data_window['Date_Encoded'] = (data_window['date'] - reference_date).dt.days
-    data_window = data_window.drop(['date'], axis=1)
+
+    data_window = data_window.drop(['date','day'], axis=1)
 
     # one-hot-encode the 'TIC' aka stock name
     one_hot = pd.get_dummies(data_window['tic'])
@@ -56,25 +70,37 @@ def getState(data_window, t, agent):
     filtered_columns.append('close_lag_0')
     data_window_no_lags = data_window.loc[:, filtered_columns]
     data_window_no_lags.rename(columns={'close_lag_0': 'close'}, inplace=True)
+
+    # substract the mean and divide by standard deviation for scalar values
+    common_columns = list(set(data_window_no_lags.columns) & set(mu_df.columns))
+    for idx, row in data_window_no_lags.iterrows():
+        data_window_no_lags.loc[idx, common_columns] = (row[common_columns] - mu_df.iloc[idx % NUM_STOCKS][common_columns]) / \
+                                               std_df.iloc[idx % NUM_STOCKS][common_columns]
+
     data_window_arr = data_window_no_lags.to_numpy()
 
     if t == 0:
 
         portfolio_arr = np.array(agent.portfolio_state.copy()).T
 
-        state = np.column_stack((data_window_arr, portfolio_arr, close_price_columns_arr))
+        state = np.column_stack((data_window_arr, close_price_columns_arr))
+
+        # state = np.column_stack((data_window_arr, portfolio_arr, close_price_columns_arr))
 
     else:  # we update options based on last closing prices
 
         portfolio_arr = np.array(agent.portfolio_state.copy()).T
 
-        state = np.column_stack((data_window_arr, portfolio_arr, close_price_columns_arr)).astype(np.float)
+        state = np.column_stack((data_window_arr, close_price_columns_arr)).astype(np.float)
+
+        # state = np.column_stack((data_window_arr, portfolio_arr, close_price_columns_arr)).astype(np.float)
 
     return state
 
 
 class Portfolio:
     def __init__(self, num_stocks, balance, name_stocks, closing_prices=[]):
+
         self.timestamp_portfolio = 'None'
         self.name_stocks_list = name_stocks
         self.initial_total_balance = float(balance)
@@ -85,6 +111,10 @@ class Portfolio:
         self.initial_daily_return_total = [0.0] * num_stocks
         self.initial_cash_left = [float(balance)] * num_stocks
         self.initial_percentage_positions = [0.0] * num_stocks  # liquid cash is included
+
+        #for monitoring sharpe ratio
+        self.portfolio_returns = []
+        self.sharpe_ratio = 0.0
 
         # for explainability
         self.portfolio_state_rows = ['total_balance', 'position_per_stock', 'position_portfolio',
@@ -133,92 +163,55 @@ class Portfolio:
 
     def reset_portfolio(self):
         self.portfolio_state = np.copy(self.initial_portfolio_state)
+        self.sharpe_ratio = 0.0
+        self.portfolio_returns = []
+
 
 
 class DQNNetwork(nn.Module):
     def __init__(self, num_stocks, num_actions, num_features, batch_size):
         super().__init__()
 
-        # self.num_stocks = num_stocks
-        # self.num_features = num_features
-        # self.h_number = int(np.floor(2 / 3 * self.num_features))  # recommended size
-        # self.f_number = self.h_number * 2  # since input will be double
-        # self.num_actions = num_actions
-        # self.num_actions_all = num_actions * num_stocks
-        self.hidden_lstm = 32
         self.num_stocks = num_stocks
         self.num_features = num_features
-        self.h_number = int(np.floor(2 / 3 * (self.num_features - 14)))  # recommended size
-        self.f_number = (self.h_number + self.hidden_lstm) * 2  # since input will be double
         self.num_actions = num_actions
         self.num_actions_all = num_actions * num_stocks
 
+        # Calculate flattened input size
+        flattened_size = self.num_stocks * (self.num_features - TIME_LAG)
+
+        # Calculate intermediate size (you can adjust this value as needed)
+        hidden_size = int(flattened_size / 2)
+
         # define layers
-        self.linear_h = nn.Linear(self.num_features - 14, self.h_number)
-        self.linear_f = nn.Linear(self.f_number, self.num_actions)
-
-        self.lstm = nn.LSTM(TIME_LAG, self.hidden_lstm, batch_first=True)
-
-        # self.linear_h = nn.Linear(self.num_stocks * self.num_features, self.h_number)
-        # self.linear_f = nn.Linear(self.h_number, self.num_actions_all)
-        self.dropout = nn.Dropout(p=0.2)
-        self.activation = torch.nn.PReLU()
-        self.activation_2 = torch.nn.Softmax(dim=1)
-        # self.activation_2 = torch.nn.ReLU()
+        self.linear_h = nn.Linear(flattened_size, hidden_size)
+        self.linear_f = nn.Linear(hidden_size, self.num_actions_all)  # output dimension matches self.num_actions_all
+        self.activation = torch.nn.ReLU()
 
         # Initializing the weights with the Xavier initialization method
-        torch.nn.init.xavier_uniform_(self.linear_h.weight)
-        torch.nn.init.xavier_uniform_(self.linear_f.weight)
+        # torch.nn.init.normal_(self.linear_h.weight, mean=0, std=0.01)
+        # torch.nn.init.normal_(self.linear_h.weight, mean=0, std=0.01)
 
     def forward(self, x):
-        h_outputs = []
-        f_outputs = []
-
-        # x is batch_size x num_stocks x num_features
+        # Ensure the input is a torch Tensor and on the correct device
         if isinstance(x, np.ndarray):
             x = torch.from_numpy(x).to(device)
         else:
             x = x.to(device)
 
-        for i in range(self.num_stocks):
-            x_i_lin = x[:, i, 0:-(TIME_LAG + 1)].float()
-            x_i_lstm = x[:, i, -(TIME_LAG + 1):-1].float()
+        # Flatten the input tensor
+        x = x[:, :, :-(TIME_LAG)].float().reshape(x.shape[0],
+                                                  -1)  # Resultant shape: [batch_size, num_stocks*(num_features-TIME_LAG)]
 
-            # Process x_i_lin with the linear layer
-            x_i_lin = self.linear_h(x_i_lin)
-            x_i_lin = self.dropout(x_i_lin)
-            x_i_lin = self.activation(x_i_lin)
+        # Pass through the first network
+        x = self.linear_h(x)
 
-            # Process x_i_lstm with the LSTM layer
-            x_i_lstm = x_i_lstm.unsqueeze(0)  # Add a batch dimension for LSTM input
-            lstm_out, _ = self.lstm(x_i_lstm)
-            lstm_out = self.activation(lstm_out)
-            x_i_lstm = lstm_out.squeeze(0)  # Remove the batch dimension from LSTM output
 
-            # Concatenate outputs from linear and LSTM networks
-            x_i_output = torch.cat((x_i_lin, x_i_lstm), dim=1)
-            h_outputs.append(x_i_output)
-        for i in range(self.num_stocks):
-            h_outputs_stock_i = torch.unsqueeze(h_outputs[i], dim=1)
-            h_outputs_temp = h_outputs.copy()
-            h_outputs_temp.pop(i)
-            h_outputs_without_i_tensor = torch.stack(h_outputs_temp, dim=1)
-            # create a vector with h_outputs for stock i and mean of stocks i+1,i+2...in
-            f_input_i = [h_outputs_stock_i, torch.mean(h_outputs_without_i_tensor, 1, True)]
-            f_input_i = torch.stack(f_input_i, dim=1)
-            f_input_i = torch.squeeze(f_input_i, dim=2)
-            # print(f_input_i)
-            # f_input_i = torch.flatten(f_input_i)
-            # pass through network of size f_number
-            f_input_i = f_input_i.reshape((-1, self.f_number))
-            f_input_i = self.linear_f(f_input_i)
-            f_input_i = self.dropout(f_input_i)
-            f_input_i = self.activation_2(f_input_i)
-            f_outputs.append(f_input_i)
+        x = self.activation(x)
 
-        x = torch.stack(f_outputs, dim=1)
-
-        x = x.reshape((-1, self.num_stocks * self.num_actions))
+        # Pass through the second network
+        x = self.linear_f(x)
+        # x = self.activation_2(x)
 
         return x
 
@@ -250,8 +243,8 @@ class Agent(Portfolio):
         self.batch_loss_history = []
         self.epoch_numbers = []
         self.num_features_from_data = num_features
-        self.num_features_total = self.num_features_from_data + self.portfolio_state.shape[0]
-        # self.num_features_total = self.num_features_from_data
+        # self.num_features_total = self.num_features_from_data + self.portfolio_state.shape[0]
+        self.num_features_total = self.num_features_from_data
 
         self.num_epochs = num_epochs
 
@@ -267,24 +260,29 @@ class Agent(Portfolio):
             self.Q_network.load_state_dict(torch.load(model_path))
             self.Q_network_val.load_state_dict(torch.load(model_target_path))
 
-        self.optimizer = torch.optim.Adam(self.Q_network.parameters(), lr=self.learning_rate, weight_decay=WEIGHT_DECAY)
+        self.optimizer = torch.optim.Adam(self.Q_network.parameters(), lr=self.learning_rate)
 
         self.loss_fn = torch.nn.MSELoss()
+        # self.torch.nn.HuberLoss()
+
+
 
     def remember(self, state, actions, closing_prices, reward, next_state, done):
         self.memory.append((state, actions, closing_prices, reward, next_state, done))
 
     def reset(self):
         self.reset_portfolio()
-        self.epsilon = 1.0  # reset exploration rate
-        self.memory = []
+        # self.epsilon = 1.0  # reset exploration rate
+        length_of_memory = len(self.memory)
+        self.memory = self.memory[length_of_memory // 4 :]
         self.batch_loss_history = []
         self.utility = 0.0
+
 
     def soft_reset(self):
         # self.epsilon = 1.0  # reset exploration rate
         self.reset_portfolio()
-        self.memory = []
+        # self.memory = []
         self.batch_loss_history = []
         self.utility = 0.0
 
@@ -332,6 +330,7 @@ class Agent(Portfolio):
         """Randomly sample a batch of experiences from memory."""
 
         sample = random.sample(self.memory, self.batch_size)
+
         statess, actionss, closing_pricess, rewardss, next_statess, doness = zip(*sample)
 
         states = np.stack(statess, axis=0)
@@ -347,10 +346,7 @@ class Agent(Portfolio):
         return (states, actions, rewards, next_states, dones)
 
 
-    def CQL_loss(self, expected_rewards, target_rewards, actions_indexes, states):
-        # log term of the CQL
-        q_outputs = self.Q_network.forward(states)
-        sum_exp_outputs = torch.log(torch.sum(torch.exp(q_outputs)))
+    def CQL_loss(self, expected_rewards, target_rewards, actions_indexes, states, alpha_CQL):
 
 
         # q value according to action distribution of sample
@@ -362,13 +358,13 @@ class Agent(Portfolio):
         actions_indexes_predominant = torch.unsqueeze(actions_indexes_predominant, dim=1)
 
         q_values_predominant = self.Q_network.forward(states).gather(1, actions_indexes_predominant)
-        # expectation:
-        expectation_q_values_predominant = torch.sum(q_values_predominant)
+        # the CQL regularizes log term:
+        sum_exp_outputs_distribution = torch.log(torch.sum(torch.exp(q_values_predominant)))
 
         loss_term = 0.5 * torch.mean((expected_rewards - target_rewards) ** 2)
-        return sum_exp_outputs - expectation_q_values_predominant + loss_term
+        return alpha_CQL * sum_exp_outputs_distribution + loss_term
 
-    def expReplay(self, epoch):
+    def expReplay(self, epoch, training_mode=True):
 
         # retrieve recent buffer_size long memory
         sample = self.sample()
@@ -385,57 +381,23 @@ class Agent(Portfolio):
         action_indexes = torch.unsqueeze(actions_indexes, dim=1)
         expected_rewards = self.Q_network.forward(states).gather(1, action_indexes)
         target_rewards = torch.tensor(target_rewards, device=device).float().view(-1).unsqueeze(1)
-        # target_rewards = torch.tensor(target_rewards, device=device).float().view(-1).unsqueeze(1)
-
 
         loss = self.loss_fn(expected_rewards, target_rewards)
-        # loss = self.CQL_loss(expected_rewards, target_rewards, actions_indexes, states)
+        # loss = self.CQL_loss(expected_rewards, target_rewards, actions_indexes, states, ALPHA_CQL)
+        if training_mode:
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step()
 
-        self.optimizer.zero_grad()
-        loss.backward()
-        self.optimizer.step()
+            for Q_network_val_parameters, Q_network_parameters in zip(self.Q_network_val.parameters(),
+                                                                      self.Q_network.parameters()):
+                Q_network_val_parameters.data.copy_(
+                    self.tau * Q_network_parameters.data + (1.0 - self.tau) * Q_network_val_parameters.data)
 
-        avg_loss = loss.mean().detach().cpu().numpy()
-        self.batch_loss_history.append(avg_loss)
+            if self.epsilon > self.epsilon_min:
+                self.epsilon *= self.epsilon_decay
 
-        for Q_network_val_parameters, Q_network_parameters in zip(self.Q_network_val.parameters(),
-                                                                  self.Q_network.parameters()):
-            Q_network_val_parameters.data.copy_(
-                self.tau * Q_network_parameters.data + (1.0 - self.tau) * Q_network_val_parameters.data)
-
-        if self.epsilon > self.epsilon_min:
-            self.epsilon *= self.epsilon_decay
-
-    def expReplay_validation(self, epoch):
-
-        # retrieve recent buffer_size long memory
-        sample = self.sample()
-        states, actions, rewards, next_states, dones = sample
-        self.Q_network_val.eval()
-
-        with torch.no_grad():
-            target_rewards = (rewards + self.gamma * (
-                torch.max(self.Q_network_val.forward(next_states), dim=1, keepdim=True)[0]).cpu().numpy() * (
-                                          1 - dones))[0]
-
-        # self.Q_network.train()
-        actions_indexes = actions[:, 0]
-        actions_indexes = torch.from_numpy(actions_indexes).to(device)
-        action_indexes = torch.unsqueeze(actions_indexes, dim=1)
-        expected_rewards = self.Q_network.forward(states).gather(1, action_indexes)
-        target_rewards = torch.tensor(target_rewards, device=device).float().view(-1).unsqueeze(1)
-
-        # loss = self.loss_fn(expected_rewards, target_rewards)
-        loss = self.CQL_loss(expected_rewards, target_rewards, actions_indexes, states)
-        # self.optimizer.zero_grad()
-        # loss.backward()
-        # self.optimizer.step()
-
-        avg_loss = loss.mean().detach().cpu().numpy()
-        self.batch_loss_history.append(avg_loss)
-
-        if self.epsilon > self.epsilon_min:
-            self.epsilon *= self.epsilon_decay
+        return loss.detach().cpu().numpy()
 
     def execute_action(self, action_index_for_stock_i, closing_prices, stock_i, h, e, dates):
         action_dictionary = {
@@ -493,39 +455,57 @@ class Agent(Portfolio):
         prev_position_portfolio = self.portfolio_state[position_portfolio_idx, 0].copy()
 
         # UPDATE DAILY RETURNS ##############################
+
         # update all stock positions based on new closing prices: no.shares * closing prices
         for i in range(NUM_STOCKS):
-            self.portfolio_state[position_stock_idx, i] = self.portfolio_state[shares_stock_idx, i] * \
-                                                          next_closing_prices[i]
+            self.portfolio_state[position_stock_idx, i] = self.portfolio_state[shares_stock_idx, i] * next_closing_prices[i]
 
         # update position total (same for all): sum of all stock positions
         self.portfolio_state[position_portfolio_idx, :] = np.sum(self.portfolio_state[position_stock_idx, :], axis=0)
 
         # update total balance: position total + cash left
         for i in range(NUM_STOCKS):
-            self.portfolio_state[total_balance_idx, i] = self.portfolio_state[position_portfolio_idx, 0] + \
-                                                         self.portfolio_state[cash_left_idx, 0]
+            self.portfolio_state[total_balance_idx, i] = self.portfolio_state[position_portfolio_idx, 0] + self.portfolio_state[cash_left_idx, 0]
+
+        # update wieghts for each stock
+        self.portfolio_state[percentage_position_stock_idx, :] = self.portfolio_state[position_stock_idx,
+                                                                 :] / self.portfolio_state[total_balance_idx, :]
 
         # update daily return per stocks: position stock - prev position stock
         for i in range(NUM_STOCKS):
-            self.portfolio_state[return_stock_idx, i] = self.portfolio_state[position_stock_idx, i] - \
-                                                        prev_position_stocks[i]
+            if prev_position_stocks[i]>0:
+                self.portfolio_state[return_stock_idx, i] = (self.portfolio_state[position_stock_idx, i] - prev_position_stocks[i])/prev_position_stocks[i]
+            else:
+                self.portfolio_state[return_stock_idx, i] = self.portfolio_state[position_stock_idx, i] - \
+                                                            prev_position_stocks[i]
 
-        # update daily return total portfolio (same for all): position_portfolio - prev position portfolio
-        self.portfolio_state[return_portfolio_idx, :] = np.sum(self.portfolio_state[return_stock_idx, :])
+        # update daily total return:
+        self.portfolio_state[return_portfolio_idx, :] = np.sum(self.portfolio_state[return_stock_idx, :]*self.portfolio_state[percentage_position_stock_idx, :])
+
+        # # update daily return total portfolio (same for all): position_portfolio - prev position portfolio
+        # self.portfolio_state[return_portfolio_idx, :] = np.sum(self.portfolio_state[return_stock_idx, :])/INITIAL_AMOUNT
 
         # reward is return per total balance
+        return_balance = (self.portfolio_state[total_balance_idx, 0].copy() - prev_balance) / self.initial_total_balance
 
-        if self.portfolio_state[position_portfolio_idx, 0] == prev_position_portfolio:
-            reward = 0.0
+        # reward is sharpe ratio, which is mean of portfolio returns divided by standard deviation
+        return_portfolio = self.portfolio_state[return_portfolio_idx, 0]
+
+        # choose which reward
+        self.portfolio_returns.append(return_balance)
+        if len(self.portfolio_returns) > 1:
+            stdev = statistics.stdev(self.portfolio_returns)
+            if stdev != 0:  # Avoid division by zero
+                self.sharpe_ratio = statistics.mean(self.portfolio_returns) / stdev
+                # self.sharpe_ratio = statistics.mean(self.portfolio_returns)
+
+            else:
+                # Handle the case where standard deviation is zero.
+                self.sharpe_ratio = statistics.mean(self.portfolio_returns)
         else:
-            if amount_transaction:
-                reward = (self.portfolio_state[total_balance_idx, 0].copy() - prev_balance)/prev_balance
+            self.sharpe_ratio = self.portfolio_returns[0]
 
-                self.utility += reward
-
-                return reward
-            reward = 0.0
+        reward = self.sharpe_ratio
 
         self.utility += reward
         return reward
@@ -1361,6 +1341,10 @@ class Agent(Portfolio):
                     # Check if all stock positions are 0.0
                     if np.all(self.portfolio_state[position_stock_idx, :] == 0.0):
                         options_np[stock_i, action_idx] = -100.0
+
+                # mask to allow for 3 options
+                # if actions_dict[action_idx] not in ['buy_0_50', 'buy_0_25','sell_0_25', 'sell_0_50', 'hold']:
+                #     options_np[stock_i, action_idx] = -100.0
 
         options = torch.from_numpy(options_np)
         options = torch.flatten(options)

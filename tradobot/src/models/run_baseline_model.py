@@ -6,7 +6,7 @@ from pathlib import Path
 from dotenv import find_dotenv, load_dotenv
 
 from src.config_model_DQN_return import *
-from src.models.DQN_model_w_return import Agent, Portfolio, getState
+from src.models.DQN_model_w_return_simple import Agent, Portfolio, getState
 #from functions import *
 
 import logging
@@ -30,15 +30,17 @@ def main(input_filepath, output_filepath):
     """
     logger = logging.getLogger(__name__)
 
+    h = np.floor(INITIAL_AMOUNT/NUM_STOCKS)
+
     data = pd.read_csv(f'{input_filepath}/{DATASET}')
-    selected_data_entries = ''
+
     print(f'Dataset used: {input_filepath}/{DATASET}')
 
     dataset_name = os.path.splitext(DATASET)[0]
 
     data_type = 'daily_frequency_data'
     # data_type = 'minute_frequency_data'
-
+    selected_adjustments = 'reset_portfolio_each_year'
 
     # Create an empty DataFrames for explainability
     cols_stocks = data['tic'].unique().tolist()
@@ -112,33 +114,37 @@ def main(input_filepath, output_filepath):
         data_window = data_window.fillna(0)
         dates = data_window['date'].tolist()
 
-        state = getState(data_window, t, agent_balanced)
+        # state = getState(data_window, t, agent_balanced)
 
         closing_prices = data_window['close'].tolist()
 
         if t < (l_training - 1):
             next_data_window = training_data.loc[(training_data['date'] == unique_dates_training[t + 1])]
-            next_state = getState(next_data_window, t + 1, agent_balanced)
+            # next_state = getState(next_data_window, t + 1, agent_balanced)
             next_closing_prices = next_data_window['close'].tolist()
             next_dates = next_data_window['date'].tolist()
         else:
-            next_state = state
+            # next_state = state
             next_closing_prices = closing_prices
             next_dates = dates
 
         # Initially buy equal shares of all stocks, then hold
         if t == 0:
             for stock_i in range(agent_balanced.num_stocks):
-                reward = agent_balanced.buy_1(closing_prices, stock_i, equal_amount, e, dates)
-            reward = agent_balanced.update_portfolio(next_closing_prices, next_dates, stock_i)
+                action_index_for_stock_i = 4  # is the buy 1 share action
+
+                amount_transaction = agent_balanced.execute_action(action_index_for_stock_i, closing_prices, stock_i, h,
+                                                                   e, dates)
+
+            reward = agent_balanced.update_portfolio(next_closing_prices, next_dates, stock_i, amount_transaction)
             agent_balanced.reward = reward
 
         else:
             stock_i = 0  # doesn't matter which stock
             action_hold_stock_i = 10  # is the hold action
 
-            agent_balanced.execute_action(action_hold_stock_i, closing_prices, stock_i, h, e, dates)
-            reward = agent_balanced.update_portfolio(next_closing_prices, next_dates, stock_i)
+            amount_transaction = agent_balanced.execute_action(action_hold_stock_i, closing_prices, stock_i, h, e, dates)
+            reward = agent_balanced.update_portfolio(next_closing_prices, next_dates, stock_i, amount_transaction)
             agent_balanced.reward = reward
 
         done = True if t == l_training - 1 else False
@@ -164,7 +170,7 @@ def main(input_filepath, output_filepath):
             # re-buy equal amount of shares
             for stock_i in range(agent_balanced.num_stocks):
                 reward = agent_balanced.buy_1(closing_prices, stock_i, equal_amount, e, dates)
-            reward = agent_balanced.update_portfolio(next_closing_prices, next_dates, stock_i)
+            reward = agent_balanced.update_portfolio(next_closing_prices, next_dates, stock_i, amount_transaction)
             agent_balanced.reward = reward
 
         # track profits only from the most recent year:
@@ -186,9 +192,9 @@ def main(input_filepath, output_filepath):
 
     # saving the explainability file
     current_date = datetime.datetime.now()
-    date_string = current_date.strftime("%Y-%m-%d_%H_%M")
+    date_string = current_date.strftime("%Y-%m-%d_%H_%M") + 'validation_noreset'
     agent_balanced.explainability_df.to_csv(
-        f'./reports/results_DQN/baseline_results/minute_frequency_data/balanced_agent_training_period_{dataset_name}_{date_string}_{selected_data_entries}.csv',
+        f'./reports/results_DQN/baseline_results/minute_frequency_data/balanced_agent_training_period_{dataset_name}_{date_string}_{selected_adjustments}.csv',
         index=False)
 
     # RUNNING BASELINE FOR VALIDATION PERIOD  #######################################################################
@@ -199,6 +205,7 @@ def main(input_filepath, output_filepath):
     dates_validation = [f'{final_validation_year}-01-01']
 
     agent_balanced.reset()
+    agent_balanced.reset_portfolio()
     agent_balanced.Q_network.eval()  # Set the model to evaluation mode
     agent_balanced.epsilon = 0.0  # no exploration
 
@@ -217,32 +224,36 @@ def main(input_filepath, output_filepath):
         data_window = data_window.fillna(0)
         dates = data_window['date'].tolist()
 
-        state = getState(data_window, t, agent_balanced)
+        # state = getState(data_window, t, agent_balanced)
 
         closing_prices = data_window['close'].tolist()
 
         if t < (l_validation - 1):
             next_data_window = validation_data.loc[(validation_data['date'] == unique_dates_validation[t + 1])]
-            next_state = getState(next_data_window, t + 1, agent_balanced)
+            # next_state = getState(next_data_window, t + 1, agent_balanced)
             next_closing_prices = next_data_window['close'].tolist()
             next_dates = next_data_window['date'].tolist()
         else:
-            next_state = state
+            # next_state = state
             next_closing_prices = closing_prices
             next_dates = dates
 
         if t==0:
             for stock_i in range(agent_balanced.num_stocks):
-                reward = agent_balanced.buy_1(closing_prices, stock_i, equal_amount, e, dates)
-            reward = agent_balanced.update_portfolio(next_closing_prices, next_dates, stock_i)
+                action_index_for_stock_i = 4  # is the buy 1 share action
+
+                amount_transaction = agent_balanced.execute_action(action_index_for_stock_i, closing_prices, stock_i, h,
+                                                                   e, dates)
+
+            reward = agent_balanced.update_portfolio(next_closing_prices, next_dates, stock_i, amount_transaction)
             agent_balanced.reward = reward
 
         else:
             stock_i = 0 # doesn't matter which stock
             action_hold_stock_i = 10 #is the hold action
 
-            agent_balanced.execute_action(action_hold_stock_i, closing_prices, stock_i, h, e, dates)
-            reward = agent_balanced.update_portfolio(next_closing_prices, next_dates, stock_i)
+            amount_transaction = agent_balanced.execute_action(action_hold_stock_i, closing_prices, stock_i, h, e, dates)
+            reward = agent_balanced.update_portfolio(next_closing_prices, next_dates, stock_i, amount_transaction)
             agent_balanced.reward = reward
 
         done = True if t == l_validation - 1 else False
@@ -269,7 +280,8 @@ def main(input_filepath, output_filepath):
             # re-buy equal amount
             for stock_i in range(agent_balanced.num_stocks):
                 reward = agent_balanced.buy_1(closing_prices, stock_i, equal_amount, e, dates)
-            reward = agent_balanced.update_portfolio(next_closing_prices, next_dates, stock_i)
+
+            reward = agent_balanced.update_portfolio(next_closing_prices, next_dates, stock_i, amount_transaction)
             agent_balanced.reward = reward
 
         # track profits only from the most recent year:
@@ -293,7 +305,7 @@ def main(input_filepath, output_filepath):
     current_date = datetime.datetime.now()
     date_string = current_date.strftime("%Y-%m-%d_%H_%M")
     agent_balanced.explainability_df.to_csv(
-        f'./reports/results_DQN/baseline_results/minute_frequency_data/balanced_agent_validation_period_{dataset_name}_{date_string}_{selected_data_entries}.csv', index=False)
+        f'./reports/results_DQN/baseline_results/minute_frequency_data/balanced_agent_validation_period_{dataset_name}_{date_string}_{selected_adjustments}.csv', index=False)
 
 
     # RUNNING BASELINE FOR TESTING PERIOD 1  #######################################################################
@@ -320,7 +332,7 @@ def main(input_filepath, output_filepath):
         data_window = data_window.fillna(0)
         dates = data_window['date'].tolist()
 
-        state = getState(data_window, t, agent_balanced)
+        # state = getState(data_window, t, agent_balanced)
 
         closing_prices = data_window['close'].tolist()
 
@@ -329,23 +341,27 @@ def main(input_filepath, output_filepath):
             next_closing_prices = next_data_window['close'].tolist()
             next_dates = next_data_window['date'].tolist()
         else:
-            next_state = state
+            # next_state = state
             next_closing_prices = closing_prices
             next_dates = dates
 
         if t == 0:
             for stock_i in range(agent_balanced.num_stocks):
-                agent_balanced.buy_1(closing_prices, stock_i, equal_amount, e, dates)
-                reward = agent_balanced.update_portfolio(next_closing_prices, next_dates, stock_i)
-                agent_balanced.reward = reward
+                action_index_for_stock_i = 4  # is the buy 1h
+
+                amount_transaction = agent_balanced.execute_action(action_index_for_stock_i, closing_prices, stock_i, h,
+                                                                   e, dates)
+
+            reward = agent_balanced.update_portfolio(next_closing_prices, next_dates, stock_i, amount_transaction)
+            agent_balanced.reward = reward
 
         else:
             stock_i = 0  # doesn't matter which stock
             action_index_for_stock_i = 10  # is the hold action
 
-            agent_balanced.execute_action(action_index_for_stock_i, closing_prices, stock_i, h, e, dates)
+            amount_transaction = agent_balanced.execute_action(action_index_for_stock_i, closing_prices, stock_i, h, e, dates)
 
-            reward = agent_balanced.update_portfolio(next_closing_prices, next_dates, stock_i)
+            reward = agent_balanced.update_portfolio(next_closing_prices, next_dates, stock_i, amount_transaction)
             agent_balanced.reward = reward
 
         cumulated_profits_list_testing.append(agent_balanced.portfolio_state[0,0])
@@ -363,7 +379,7 @@ def main(input_filepath, output_filepath):
     current_date = datetime.datetime.now()
     date_string = current_date.strftime("%Y-%m-%d_%H_%M")
     agent_balanced.explainability_df.to_csv(
-        f'./reports/results_DQN/baseline_results/minute_frequency_data/balanced_agent_testing_period_{dataset_name}_{date_string}_{selected_data_entries}.csv', index=False)
+        f'./reports/results_DQN/baseline_results/minute_frequency_data/balanced_agent_testing_period_{dataset_name}_{date_string}_{selected_adjustments}.csv', index=False)
 
     # Plotting
     fig, (ax0, ax1, ax2) = plt.subplots(1, 3, figsize=(30, 6))  # Adjusted for three subplots
@@ -419,7 +435,7 @@ def main(input_filepath, output_filepath):
 
     # Save the figure in the specified folder path
     plt.savefig(
-        f'./reports/figures/baseline_models/{data_type}/balanced_agent_testing_and_validation_periods_profits_for_{dataset_name}_{date_string}_{selected_data_entries}.png')
+        f'./reports/figures/baseline_models/{data_type}/balanced_agent_testing_and_validation_periods_profits_for_{dataset_name}_{date_string}_{selected_adjustments}.png')
 
     # Show the figures
     plt.show()

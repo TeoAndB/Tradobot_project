@@ -10,9 +10,9 @@ INITIAL_AMOUNT = 10000
 # please work
 
 # DATA PARAMETERS ####################################################
-DATASET = "dataset1_1Day_w14Lags_HA-WBA-INCY.csv"
-DATASET_INDEX = 1
-NUM_STOCKS = 3
+DATASET = "dataset3_1Day_w14Lags_HA-WBA-INCY-BIDU-TCOM.csv"
+DATASET_INDEX = 3
+NUM_STOCKS = 5
 TIME_LAG = 14
 
 # DQN Params #####################

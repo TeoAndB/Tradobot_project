@@ -53,12 +53,35 @@ data_alpaca: requirements
 # Train the model
 train_DQN_return: requirements
 	$(PYTHON_INTERPRETER) src/models/train_DQNmodel_return.py data/processed models
+	$(PYTHON_INTERPRETER) src/models/train_DQNmodel_return.py data/processed models
+	$(PYTHON_INTERPRETER) src/models/train_DQNmodel_return.py data/processed models
+	$(PYTHON_INTERPRETER) src/models/train_DQNmodel_return_d2.py data/processed models
+	$(PYTHON_INTERPRETER) src/models/train_DQNmodel_return_d2.py data/processed models
+	$(PYTHON_INTERPRETER) src/models/train_DQNmodel_return_d2.py data/processed models
+	$(PYTHON_INTERPRETER) src/models/train_DQNmodel_return_d3.py data/processed models
+	$(PYTHON_INTERPRETER) src/models/train_DQNmodel_return_d3.py data/processed models
+	$(PYTHON_INTERPRETER) src/models/train_DQNmodel_return_d3.py data/processed models
+	$(PYTHON_INTERPRETER) src/models/train_DQNmodel_return_d4.py data/processed models
+	$(PYTHON_INTERPRETER) src/models/train_DQNmodel_return_d4.py data/processed models
+	$(PYTHON_INTERPRETER) src/models/train_DQNmodel_return_d4.py data/processed models
+	$(PYTHON_INTERPRETER) src/models/train_DQNmodel_return_d5.py data/processed models
+	$(PYTHON_INTERPRETER) src/models/train_DQNmodel_return_d5.py data/processed models
+	$(PYTHON_INTERPRETER) src/models/train_DQNmodel_return_d5.py data/processed models
+	$(PYTHON_INTERPRETER) src/models/train_DQNmodel_return_d6.py data/processed models
+	$(PYTHON_INTERPRETER) src/models/train_DQNmodel_return_d6.py data/processed models
+	$(PYTHON_INTERPRETER) src/models/train_DQNmodel_return_d6.py data/processed models
+	$(PYTHON_INTERPRETER) src/models/train_DQNmodel_return_d7.py data/processed models
+	$(PYTHON_INTERPRETER) src/models/train_DQNmodel_return_d7.py data/processed models
+	$(PYTHON_INTERPRETER) src/models/train_DQNmodel_return_d7.py data/processed models
+
+
 
 train_DQN_return_alternative: requirements
 	$(PYTHON_INTERPRETER) src/models/train_DQNmodel_return_alternate_years.py data/processed models
 
 validate_DQN_return: requirements
 	$(PYTHON_INTERPRETER) src/models/validate_DQN_model_expReplay.py data/processed models
+
 
 train_DQN_sharpe: requirements
 	$(PYTHON_INTERPRETER) src/models/train_DQNmodel_sharpe.py data/processed models
@@ -74,6 +97,9 @@ visualize_explainability: requirements
 # Visualize losses files
 visualize_losses: requirements
 	$(PYTHON_INTERPRETER) src/visualization/visualize_losses.py reports/tables/results_DQN reports/explainability_figures
+
+visualize_profits: requirements
+	$(PYTHON_INTERPRETER) src/visualization/visualize_profits.py reports/results_DQN reports/explainability_figures
 
 # Visualize losses files
 visualize_profits_model_comparison: requirements

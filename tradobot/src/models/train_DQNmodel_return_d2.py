@@ -4,9 +4,11 @@ import click
 import logging
 from pathlib import Path
 from dotenv import find_dotenv, load_dotenv
+import gc
 
-from src.config_model_DQN_return import *
-from src.models.DQN_model_w_return import Agent, Portfolio, getState
+
+from src.config_model_DQN_return_d2 import *
+from src.models.DQN_model_w_return_simple_d2 import Agent, Portfolio, getState, getMeanStdFromData
 #from functions import *
 
 import logging
@@ -22,6 +24,8 @@ import sklearn
 from sklearn.model_selection import train_test_split
 from matplotlib.ticker import MaxNLocator
 
+
+
 @click.command()
 @click.argument('input_filepath', type=click.Path(exists=True))
 @click.argument('output_filepath', type=click.Path())
@@ -31,12 +35,14 @@ def main(input_filepath, output_filepath):
     logger = logging.getLogger(__name__)
 
     data = pd.read_csv(f'{input_filepath}/{DATASET}', index_col=0)
-    #data = normalize_dataframe(data.copy())
+    NUM_STOCKS = len(data.tic.unique())
 
-    selected_adjustments = 'regular_DQN_100Epochs'
+    selected_adjustments = 'DQN_simple_SR_of_balance_return_lre-4_35Epochs'
     #data_type = "minute_frequency_data"
     data_type = "daily_frequency_data"
-    reward_type = "reward_portfolio_return"
+    # reward_type = "reward_portfolio_return"
+    reward_type = "reward_sharpe_ratio"
+
 
     print(f'Dataset used: {input_filepath}/{DATASET}')
 
@@ -71,6 +77,8 @@ def main(input_filepath, output_filepath):
 
     # Filter data based on date ranges
     train_data = data[(data['date'] >= train_start_date) & (data['date'] <= train_end_date)]
+    mu_train_df, std_train_df = getMeanStdFromData(train_data, NUM_STOCKS)
+
     validation_data = data[(data['date'] >= val_start_date) & (data['date'] <= val_end_date)]
     test_data = data[(data['date'] >= test_start_date) & (data['date'] <= test_end_date)]
     test_data_2 = data[(data['date'] >= test_start_date_2) & (data['date'] <= test_end_date_2)]
@@ -80,19 +88,11 @@ def main(input_filepath, output_filepath):
     print(f'Model running on {device}')
     h = hmax # user defined maximum amount to buy
 
-    num_features = len(data.columns) + len(data.tic.unique()) - 1 #data_window after being preprocessed with one hot encoding
-
-    models_folder = './models/reward_return/'
-    name_DQN = f'{models_folder}trained_DQN-model_for_dataset1_1Day_w14Lags_HA-WBA-INCY_2023-08-23_20_27_with_CQL_100_Epochs.pth'
-    name_DQN_target = f'{models_folder}trained_target-DQN-model_for_dataset1_1Day_w14Lags_HA-WBA-INCY_2023-08-23_20_27_with_CQL_100_Epochs.pth'
-
+    num_features = len(data.columns) - 2 + NUM_STOCKS # data_window without 'date' and 'tic' columns  + one_hot_encoding (num_stocks)
 
     agent = Agent(num_stocks=NUM_STOCKS, actions_dict=ACTIONS_DICTIONARY, h=h, num_features=num_features, balance=INITIAL_AMOUNT, name_stocks=cols_stocks,
                   gamma=GAMMA, epsilon=EPSILON, epsilon_min=EPSILON_MIN,
-                  epsilon_decay=EPSILON_DECAY, learning_rate=LEARNING_RATE, batch_size=BATCH_SIZE, tau=TAU, num_epochs=NUM_EPOCHS,
-                  model_path=name_DQN,
-                  model_target_path=name_DQN_target
-                  )
+                  epsilon_decay=EPSILON_DECAY, learning_rate=LEARNING_RATE, batch_size=BATCH_SIZE, tau=TAU, num_epochs=NUM_EPOCHS)
 
     action_index_arr_mask = np.arange(0, agent.num_actions * agent.num_stocks, 1, dtype=int).reshape(agent.num_stocks,
                                                                                                      agent.num_actions)
@@ -123,9 +123,20 @@ def main(input_filepath, output_filepath):
             dates_list_by_year_val[year] = []
         dates_list_by_year_val[year].append(date)
 
+    # TRAINING lists for keeping track of losses and profits #############################################################
+
+
+    loss_history_per_epoch_training = []
+    epoch_numbers_history_training = []
+    cumulated_profits_list_training_per_epcoh_list = [INITIAL_AMOUNT]
+    epoch_numbers_history_training_for_profits = [0]
+    timestamps_list_training = [f'{final_training_year}-01-01']
+    utility_list_training_per_epoch = [0.0]
+    epoch_numbers_history_training_loss = []
+
+
     # VALIDATION lists for keeping track of losses and profits ###########################################################
 
-    validation_loss_history = []
     loss_history_per_epoch_validation = []
     epoch_numbers_history_validation = []
     cumulated_profits_list_validation_per_epcoh_list = [INITIAL_AMOUNT]
@@ -136,22 +147,169 @@ def main(input_filepath, output_filepath):
     timestamps_list_validation = [f'{final_validation_year}-01-01']
 
 
+    # epochs
+    for e in range(NUM_EPOCHS):
+
+        train_loss_history = []
+        validation_loss_history = []
+
+        agent.reset()
+
+        years_list_training = []
+        yearly_balance_training_last_epoch = []
+
+        # episodes
+        for year, year_episode_dates in dates_list_by_year.items():
+
+                agent.soft_reset()
+
+
+                print(f'EPOCH: {e + 1} - Training episode {e+1}, year {year}')
+
+                data_window = train_data.loc[(train_data['date'] == year_episode_dates[0])]
+                initial_state = getState(data_window, 0, agent, mu_train_df, std_train_df)
+                closing_prices = data_window['close'].tolist()
+
+                l_training = len(year_episode_dates)
+                max_profit = 0.0
+                loss_per_50_timesteps = []
+                yearly_utility_list_training = []
+                yearly_balance_training = []
+
+                cumulated_rewards_list_training = [0.0]
+                cumulated_profits_list_training = [INITIAL_AMOUNT]
+
+                for t in range(l_training):
+
+                    data_window = train_data.loc[(train_data['date'] == year_episode_dates[t])]
+
+                    # replace NaN values with 0.0
+                    data_window = data_window.fillna(0)
+                    # get the date
+                    dates = data_window['date'].tolist()
+                    # get the year for assuming yearly profits
+                    data_window = data_window.copy()
+                    data_window['date'] = pd.to_datetime(data_window['date'])
+                    years = data_window['date'].dt.strftime('%Y')
+                    year = years.iloc[0]
+
+                    state = getState(data_window, t, agent, mu_train_df, std_train_df)
+
+                    # take action a, observe reward and next_state
+                    closing_prices = data_window['close'].tolist()
+
+                    # act epsilon-greedy
+                    action_index = agent.act(state, closing_prices)
+
+                    indices = np.where(action_index_arr_mask == action_index)
+                    stock_i, action_index_for_stock_i = map(int, indices)
+
+                    # Execute action
+                    amount_transaction = agent.execute_action(action_index_for_stock_i, closing_prices, stock_i, h, e, dates)
+
+                    # Next state should append the t+1 data and portfolio_state. It also updates the position of agent portfolio based on agent position
+
+                    if t<(l_training-1):
+                        next_data_window = train_data.loc[(train_data['date'] == year_episode_dates[t + 1])]
+                        next_state = getState(next_data_window, t+1, agent, mu_train_df, std_train_df)
+                        next_closing_prices = next_data_window['close'].tolist()
+                        next_dates = next_data_window['date'].tolist()
+                    else:
+                        next_state = state
+                        next_closing_prices = closing_prices
+                        next_dates = dates
+
+                    # Update portfolio and observe reward
+                    reward = agent.update_portfolio(next_closing_prices, next_dates, stock_i, amount_transaction)
+
+                    done = True if t == l_training - 1 else False
+
+                    agent.remember(state=state, actions=(action_index, action_index_for_stock_i, stock_i, h), closing_prices=closing_prices,
+                                   reward=reward, next_state=next_state, done=done)
+
+                    # for i in range(NUM_SAMPLING):
+                    if len(agent.memory) >= agent.batch_size:
+                        for i in range(NUM_SAMPLING):
+                            loss = agent.expReplay(e, training_mode=True) # will also save the model on the last epoch
+                            train_loss_history.append(loss)
+
+                    if (t%50 == 0 or t==(l_training-1)) and len(train_loss_history)>0:
+                        loss_per_epoch_log = sum(train_loss_history) / len(train_loss_history)
+                        loss_per_50_timesteps.append(loss_per_epoch_log)
+                        print(f'Epoch {e+1}, year {year}, Training Loss: {loss_per_epoch_log:.4f}')
+                        print(f'Epoch {e+1}, year {year}, Balance: {agent.portfolio_state[0,0]:.4f}')
+                        print(f'Epoch {e + 1}, year {year}, Utility: {agent.utility:.4f} \n')
+
+                    # next_data_window['date'] = pd.to_datetime(next_data_window['date'])
+                    # next_year = next_data_window['date'].iloc[0].year
+                    next_data_window = next_data_window.copy()
+                    next_data_window['date'] = pd.to_datetime(next_data_window['date'])
+                    next_years = next_data_window['date'].dt.strftime('%Y')
+                    next_year = next_years.iloc[0]
+
+                    # track profits for the final year during the last epoch
+                    if e == NUM_EPOCHS-1 and  year == final_training_year :
+                        cumulated_profits_list_training.append(agent.portfolio_state[0, 0])
+                        cumulated_rewards_list_training.append(agent.utility)
+                        timestamps_list_training.append(agent.timestamp_portfolio.date().strftime('%Y-%m-%d'))
+
+                    done = True if t == l_training - 1 else False
+
+                    if done and e == NUM_EPOCHS - 1:
+                        years_list_training.append(year)
+                        yearly_balance_training_last_epoch.append(agent.portfolio_state[0, 0])
+
+                    if done:
+                        yearly_balance_training.append(agent.portfolio_state[0, 0])
+                        # printing portfolio state
+                        df_portfolio_state = pd.DataFrame(agent.portfolio_state, columns=cols_stocks)
+                        df_portfolio_state.insert(0, 'TIC', agent.portfolio_state_rows)
+                        print(f'Training: Portfolio state for epoch {e + 1}, year {year} is \n: {df_portfolio_state}')
+                        yearly_utility_list_training.append(agent.utility)
+
+        average_utility_training = sum(yearly_utility_list_training)/len(yearly_utility_list_training)
+        yearly_balance_training_avg = sum(yearly_balance_training) / len(yearly_balance_training)
+
+        utility_list_training_per_epoch.append(average_utility_training)
+        cumulated_profits_list_training_per_epcoh_list.append(yearly_balance_training_avg)
+
+        epoch_numbers_history_training_for_profits.append(e+1)
+
+        loss_per_epoch = sum(train_loss_history) / len(train_loss_history)
+        print(f'Training Loss for Epoch {e+1}: {loss_per_epoch:.4f}')
+
+        loss_history_per_epoch_training.append(loss_per_epoch)
+        # epochs_list = [e+1]*len(train_loss_history)
+        # epoch_numbers_history_training_loss.extend(epochs_list)
+        epoch_numbers_history_training_loss.append(e+1)
+
+
+
+        # Save explainability DataFrame for the last epoch
+        if e == (agent.num_epochs-1):
+            current_date = datetime.datetime.now()
+            date_string = current_date.strftime("%Y-%m-%d_%H_%M")
+            agent.explainability_df.to_csv(
+                f'./reports/results_DQN/{reward_type}/{data_type}/training_last_epoch/training_explainability_{dataset_name}_{date_string}_{selected_adjustments}.csv', index=False)
+
+
         # VALIDATION PHASE ########################################################################
-        agent.epsilon = 0.0 # no exploration
 
         # final_penalty = 1.0
+        agent.reset_portfolio()
         yearly_balance_validation = []
         validation_data = validation_data.copy()
         yearly_balance_validation_last_epoch = []
         years_list_validation_last_epoch = []
+        agent.epsilon = 0.0 # no exploration
 
         for year, year_episode_dates in dates_list_by_year_val.items():
             print(f'Epoch {e+1}, year {year}')
             agent.soft_reset()
-            agent.reset_portfolio()
+            # agent.reset_portfolio()
 
             data_window = validation_data.loc[(validation_data['date'] == year_episode_dates[0])]
-            initial_state = getState(data_window, 0, agent)
+            initial_state = getState(data_window, 0, agent, mu_train_df, std_train_df)
             closing_prices = data_window['close'].tolist()
 
             l_validation = len(year_episode_dates)
@@ -176,7 +334,8 @@ def main(input_filepath, output_filepath):
                 years = data_window['date'].dt.strftime('%Y')
                 year = years.iloc[0]
 
-                state = getState(data_window, t, agent)
+                state = getState(data_window, t, agent, mu_train_df, std_train_df)
+
 
                 # take action a, observe reward and next_state
                 closing_prices = data_window['close'].tolist()
@@ -194,7 +353,7 @@ def main(input_filepath, output_filepath):
 
                 if t < (l_validation - 1):
                     next_data_window = validation_data.loc[(validation_data['date'] == year_episode_dates[t + 1])]
-                    next_state = getState(next_data_window, t + 1, agent)
+                    next_state = getState(next_data_window, t + 1, agent, mu_train_df, std_train_df)
                     next_closing_prices = next_data_window['close'].tolist()
                     next_dates = next_data_window['date'].tolist()
                 else:
@@ -212,11 +371,9 @@ def main(input_filepath, output_filepath):
                                reward=reward, next_state=next_state, done=done)
 
                 if len(agent.memory) >= agent.batch_size:
-                    for i in range(NUM_SAMPLING):
-                        agent.expReplay(e)
-
-                        batch_loss_history = agent.batch_loss_history.copy()
-                        validation_loss_history.extend(batch_loss_history)
+                    loss = agent.expReplay(e, training_mode=False)  # will also save the model on the last epoch
+                    # make the same function
+                    validation_loss_history.append(loss)
 
                 if (t % 50 == 0 or t == (l_validation - 1)) and len(validation_loss_history) > 0:
                     loss_per_epoch_log = sum(validation_loss_history) / len(validation_loss_history)
@@ -254,7 +411,7 @@ def main(input_filepath, output_filepath):
         cumulated_profits_list_validation_per_epcoh_list.append(yearly_balance_validation_avg)
         utility_list_validation_per_epoch.append(average_utility_validation)
 
-
+        # print(f'Len of validation_loss_history is {len(validation_loss_history)}')
         loss_per_epoch = (sum(validation_loss_history) / len(validation_loss_history))
         loss_history_per_epoch_validation.append(loss_per_epoch)
         epoch_numbers_history_validation_loss.append(e+1)
@@ -388,7 +545,7 @@ def main(input_filepath, output_filepath):
     plt.savefig(f'./reports/figures/DQN_{reward_type}/{data_type}/DQN_Utility_Porifts_lastYear_{dataset_name}_{date_string}_{selected_adjustments}.png')
     # plt.show()
 
-    # save model
+    # # save model
     torch.save(agent.Q_network.state_dict(), f'{output_filepath}/reward_return/trained_DQN-model_for_{dataset_name}_{date_string}_{selected_adjustments}.pth')
     torch.save(agent.Q_network_val.state_dict(), f'{output_filepath}/reward_return/trained_target-DQN-model_for_{dataset_name}_{date_string}_{selected_adjustments}.pth')
 
@@ -401,8 +558,8 @@ def main(input_filepath, output_filepath):
     config_data = '\n'.join(config_lines)
     config_text = config_data
 
-    with open( f'{output_filepath}/reward_return/config_file_for_{dataset_name}_{date_string}_{selected_adjustments}.txt', 'w') as file:
-        file.write(config_text)
+    # with open( f'{output_filepath}/reward_return/config_file_for_{dataset_name}_{date_string}_{selected_adjustments}.txt', 'w') as file:
+    #     file.write(config_text)
 
     # Saving results_FinRL files
 

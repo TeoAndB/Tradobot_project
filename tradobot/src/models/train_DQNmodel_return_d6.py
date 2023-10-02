@@ -7,8 +7,8 @@ from dotenv import find_dotenv, load_dotenv
 import gc
 
 
-from src.config_model_DQN_return import *
-from src.models.DQN_model_w_return_simple import Agent, Portfolio, getState, getMeanStdFromData
+from src.config_model_DQN_return_d6 import *
+from src.models.DQN_model_w_return_simple_d6 import Agent, Portfolio, getState, getMeanStdFromData
 #from functions import *
 
 import logging
